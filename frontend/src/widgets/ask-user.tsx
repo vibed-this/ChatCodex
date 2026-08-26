@@ -118,9 +118,9 @@ function App() {
         ? "已取消回答"
         : "问题已过期";
     const description = terminal === "submitted"
-      ? "ChatGPT 会把你的回答交给 Codex 继续处理。"
+      ? "ChatGPT 会把你的回答交给本地执行服务继续处理。"
       : terminal === "cancelled"
-        ? "Codex 会继续处理取消结果。"
+        ? "本地执行服务会继续处理取消结果。"
         : "该请求已被处理或不再有效。";
     return (
       <WidgetShell surface="inline">
@@ -201,7 +201,7 @@ function App() {
         <SurfaceHeader
           icon={<HelpCircle aria-hidden="true" />}
           title="需要你的输入"
-          description={questions.length === 1 ? questions[0].question : `Codex 提出了 ${questions.length} 个问题`}
+          description={questions.length === 1 ? questions[0].question : `本地执行服务提出了 ${questions.length} 个问题`}
           actions={!simpleInline && (
             <>
               {targetedTextAnswer && (
@@ -250,7 +250,7 @@ function App() {
       <SurfaceHeader
         icon={<HelpCircle aria-hidden="true" />}
         title="需要你的输入"
-        description={`回答 ${questions.length} 个问题后，Codex 会继续当前任务。`}
+        description={`回答 ${questions.length} 个问题后，本地执行服务会继续当前任务。`}
       />
       <div className="surface-body">
         <QuestionForm

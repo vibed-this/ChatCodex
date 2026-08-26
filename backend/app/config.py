@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,20 +11,6 @@ from typing import Any
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
-
-def _default_codex_command() -> str:
-    """Resolve an official Codex runtime without depending on a source fork."""
-    workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    name = "codex.exe" if os.name == "nt" else "codex"
-    base = os.path.join(workspace, "native", "codex", "current")
-    for native in (
-        os.path.join(base, "bin", name),
-        os.path.join(base, "codex", "bin", name),
-        os.path.join(base, name),
-    ):
-        if os.path.isfile(native):
-            return native
-    return shutil.which("codex") or ""
 
 
 def _native_dir() -> str:
@@ -61,16 +46,6 @@ class Settings:
         _env("CHATCODEX_DATABASE_URL") or "sqlite:///" + _default_database_path()
     )
 
-    # Codex App Server: internal 由 Gateway 守护；external 只连接已有 WebSocket。
-    codex_app_mode: str = _env("CHATCODEX_CODEX_APP_MODE", "internal")
-    codex_command: str = _env("CHATCODEX_CODEX_COMMAND", _default_codex_command())
-    codex_external_ws_url: str = _env("CHATCODEX_CODEX_EXTERNAL_WS_URL", "")
-    codex_external_ws_key: str = _env("CHATCODEX_CODEX_EXTERNAL_WS_KEY", "")
-    codex_internal_ws_key: str = _env("CHATCODEX_CODEX_INTERNAL_WS_KEY", "")
-    codex_ws_port: int = int(_env("CHATCODEX_CODEX_WS_PORT", "8765"))
-    approval_timeout_ms: int = int(_env("CHATCODEX_APPROVAL_TIMEOUT_MS", "300000"))
-    codex_release_repo: str = _env("CHATCODEX_CODEX_RELEASE_REPO", "openai/codex")
-    codex_download_url: str = _env("CHATCODEX_CODEX_DOWNLOAD_URL", "")
     native_dir: str = _native_dir()
 
     # Web 管理面板/API 与 MCP 使用独立凭据。旧 CHATCODEX_AUTH_* 仅作迁移兜底。

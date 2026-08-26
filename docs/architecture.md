@@ -6,9 +6,9 @@
 FastAPI lifespan
     |
     +-- Runtime
-        +-- Persistence (Database / SettingsStore / AuditRepository)
+        +-- Persistence (Database / SettingsStore)
         +-- Authenticator / WebAuthenticator
-        +-- AppServerManager / TunnelManager / EventBroker
+        +-- NativeRuntimeManager / TunnelManager
         +-- ExecutionService
         |     +-- FilesystemService
         |     +-- SearchService
@@ -41,7 +41,6 @@ The former `execution/backend.py` implementation has been removed.
 `app/persistence/database.py` owns the SQLite connection and schema. Higher-level repositories isolate specific persistence concerns:
 
 - `settings.py`: persistent application settings.
-- `audit.py`: approval audit records.
 - `oauth.py`: reserved boundary for OAuth client persistence as that concern is extracted from the authentication service.
 
 Execution services remain stateless and persistence-free.

@@ -22,7 +22,6 @@ start.bat          # Windows
 | 面板位置 | 配置项(原环境变量) |
 |---|---|
 | **设置 → 访问与认证** | Web/MCP Token、OAuth 密码、回调保护、`PUBLIC_URL` |
-| **设置 → Codex App Server** | native 内部服务或外挂 WebSocket、密钥、WS 端口、自动重启 |
 | **设置 → 会话默认** | 默认 Subagent 模型、Subagent 能力、历史模式、审批策略、沙箱 |
 | **公网入口** | Cloudflare / 直接暴露二选一，作为 Web、REST 与 OAuth issuer 的全局路由 |
 | **设置 → ChatGPT Tunnel · MCP** | 独立 Secure MCP Tunnel、线程隔离、watchdog 与客户端下载 |
@@ -41,12 +40,12 @@ start.bat          # Windows
 ## 改动生效
 
 - **公网入口 / ChatGPT Tunnel**:分别即时控制；自动启动配置在下次 Gateway 启动生效。
-- **认证**:保存后需重启 Gateway；Codex 连接设置保存后在 Codex 页重启/重连。
+- **认证**:保存后需重启 Gateway。
 - **前端**:改 frontend 后 `npm run build` 再重启。
 
 ## 验证
 
 ```bash
 curl http://127.0.0.1:8000/healthz
-# {"ok":true,"appserver":true,"healthy":true,...}
+# {"ok":true,"healthy":true,...}
 ```

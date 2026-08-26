@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const widgets = ["workspace-setup", "chat", "ask-user", "approval", "diff"];
+const widgets = ["workspace-setup", "chat", "ask-user", "diff"];
 
 for (const name of widgets) {
   const html = fs.readFileSync(path.join(root, "widgets", `${name}.html`), "utf8");
@@ -14,6 +14,5 @@ for (const name of widgets) {
 }
 
 assert.ok(fs.existsSync(path.join(root, "dist", "panel", "index.html")), "panel build artifact is missing; run npm run build");
-assert.ok(fs.existsSync(path.join(root, "dist", "widgets", "approval.html")), "approval build artifact is missing; run npm run build");
 
 console.log(`frontend contract smoke: ${widgets.length} widget entrypoints and build artifacts verified`);

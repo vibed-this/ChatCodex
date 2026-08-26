@@ -26,7 +26,7 @@ def free_port() -> int:
 
 
 def main() -> None:
-    port, codex_port = free_port(), free_port()
+    port = free_port()
     base = f"http://127.0.0.1:{port}"
     tunnel_id = "tunnel_" + "a" * 32
     backend = Path(__file__).resolve().parents[1]
@@ -34,7 +34,6 @@ def main() -> None:
         env = {
             **os.environ,
             "CHATCODEX_PORT": str(port),
-            "CHATCODEX_CODEX_WS_PORT": str(codex_port),
             "CHATCODEX_DATABASE_URL": f"sqlite:///{Path(directory, 'test.db').as_posix()}",
             "CHATCODEX_WEB_ACCESS_TOKEN": "web-integration-secret",
             "CHATCODEX_MCP_ACCESS_TOKEN": "mcp-integration-secret",
@@ -191,7 +190,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
             status == 200
             and prmd.get("resource") == base + "/mcp"
             and prmd.get("authorization_servers") == [base]
-            and prmd.get("scopes_supported") == ["codex"]
+            and prmd.get("scopes_supported") == ["tools"]
         )
         else 0
     )
@@ -251,7 +250,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         "redirect_uri": "http://localhost/callback",
         "code_challenge": challenge,
         "code_challenge_method": "S256",
-        "scope": "codex",
+        "scope": "tools",
         "state": "state-1",
         "resource": rewritten_resource,
     }

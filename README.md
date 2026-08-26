@@ -8,16 +8,14 @@ Execution is split into transport-independent filesystem, search, shell, and pat
 
 See [`SECURITY.md`](SECURITY.md) and [`docs/architecture.md`](docs/architecture.md) for the security and architecture models.
 
-在 ChatGPT 里安全地使用本地 Codex。
+在 ChatGPT 中安全使用本机执行工具。
 
-ChatCodex 是一个本地网关：它把你的 ChatGPT 对话连接到这台电脑上的官方
-Codex，让 ChatGPT 能在你划定的工作区内执行命令、读写文件、应用补丁——
-而每一步可能有影响的操作，都要经过你在控制台里点「允许」才会真正执行。
+ChatCodex 是一个本地网关：它把你的 ChatGPT 对话连接到这台电脑上的本地执行服务，
+让 ChatGPT 能执行命令、读写文件、搜索内容并应用补丁。
+执行权限由运行 ChatCodex 的操作系统账户决定。
 
-- **你说了算**：默认所有命令、写入、补丁都要先经过审批。
-- **限定范围**：Codex 只能在你指定的工作区目录内活动。
+- **本地执行**：命令、文件读写、搜索与补丁直接由本机执行服务处理。
 - **凭据分开**：登录控制台用的 Token 和 ChatGPT 连接用的密钥互不相同。
-- **只用官方 Codex**：不做任何修改，由网关统一管控安全边界。
 
 ---
 
@@ -83,16 +81,13 @@ npm run build
 
 ## 日常使用
 
-- **开始一个任务**：在 ChatGPT 里让它打开工作区，确认目录、沙箱和审批策略后即可开始。
-- **处理审批**：需要执行命令或改动文件时，控制台「审批」页会实时弹出请求，点「允许一次」或「拒绝」。
-- **管理 Codex**：控制台「Codex」页可启动 / 重启 / 更新官方 Codex，可让它自动下载，也可指定本地安装包。
+- **开始一个任务**：在 ChatGPT 里让它打开工作区并直接调用本地执行工具。
 - **管理上下文**：「执行上下文」页查看或归档每个对话绑定的工作区。
 
 ### 改动何时生效
 
 - 公网入口、ChatGPT Tunnel：在对应页面即时启停。
 - 认证类设置（Token / OAuth）：保存后需**重启网关**。
-- Codex 连接设置：保存后到「Codex」页点「重启 / 重连」。
 - 改了前端代码：重新 `npm run build` 并重启网关。
 
 ---
@@ -124,8 +119,6 @@ Linux/macOS：`$XDG_STATE_HOME/chatcodex/`），可用 `CHATCODEX_DATABASE_URL` 
 | `CHATCODEX_MCP_AUTH_MODE` | `token` | `token` / `oauth` / `both` / `noauth` |
 | `CHATCODEX_PUBLIC_URL` | `http://127.0.0.1:8000` | 公网地址（OAuth 需要） |
 | `CHATCODEX_DATABASE_URL` | 用户私有目录 | 数据库位置（`sqlite:///` 或 `postgresql://`） |
-| `CHATCODEX_CODEX_COMMAND` | 自动解析 / 下载 | Codex 可执行文件路径 |
-| `CHATCODEX_APPROVAL_TIMEOUT_MS` | `300000` | 审批等待时长（毫秒） |
 
 完整列表与默认值见控制台「设置」页。
 

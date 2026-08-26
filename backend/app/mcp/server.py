@@ -35,7 +35,6 @@ class ContractFastMCP(FastMCP):
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
-from app.appserver.mcp_carrier import McpCarrier
 from app.execution import ExecutionError, ExecutionService
 
 from .schemas import TOOL_DEFINITIONS
@@ -81,126 +80,15 @@ class _Verifier(TokenVerifier):
         return AccessToken(
             token=token,
             client_id=principal.client_id or principal.user_id,
-            scopes=principal.scopes or ["codex"],
+            scopes=principal.scopes or ["tools"],
             expires_at=None,
         )
 
 
 def tool_security_schemes(settings: Settings) -> list[dict[str, Any]]:
     if settings.mcp_auth_mode in ("oauth", "both"):
-        return [{"type": "oauth2", "scopes": ["codex"]}]
+        return [{"type": "oauth2", "scopes": ["tools"]}]
     return [{"type": "noauth"}]
-
-
-class McpForwarder:
-    """Adapter for downstream MCP calls; app-server details stay out of execution."""
-
-    def __init__(self, appserver: Any | None) -> None:
-        self.appserver = appserver
-        self.carrier = McpCarrier(appserver) if appserver is not None else None
-
-    async def list_tools(self) -> dict[str, Any]:
-        if self.appserver is None:
-            msg = "backend_unavailable"
-            raise ExecutionError(msg, "downstream MCP app-server is not configured")
-        response: dict[str, Any] = {}
-        try:
-            response = await self.appserver.mcp_server_status_list()
-        except Exception as exc:
-            if self.carrier is None:
-                msg = "backend_unavailable"
-                raise ExecutionError(msg, str(exc)) from exc
-            try:
-                carrier = await self.carrier.thread_id("__full_access__")
-                response = await self.appserver.mcp_server_status_list(carrier)
-            except Exception as fallback_exc:
-                msg = "backend_unavailable"
-                raise ExecutionError(msg, str(fallback_exc)) from fallback_exc
-        servers = (response or {}).get("data") or []
-        out: list[dict[str, Any]] = []
-        for server in servers:
-            raw_tools = server.get("tools") or {}
-            items = (
-                list(raw_tools.values())
-                if isinstance(raw_tools, dict)
-                else list(raw_tools or [])
-            )
-            tools = [
-                {
-                    "name": str(tool.get("name") or ""),
-                    "description": str(tool.get("description") or ""),
-                    "inputSchema": tool.get("inputSchema")
-                    or tool.get("input_schema")
-                    or {},
-                    "readOnly": bool(
-                        (tool.get("annotations") or {}).get("readOnlyHint")
-                    ),
-                    "policy": "allow",
-                }
-                for tool in items
-            ]
-            tools.sort(key=lambda item: str(item["name"]))
-            out.append(
-                {
-                    "name": str(server.get("name") or ""),
-                    "authStatus": str(server.get("authStatus") or ""),
-                    "tools": tools,
-                }
-            )
-        out.sort(key=lambda item: item["name"])
-        return {"conversationId": "", "servers": out}
-
-    async def call_tool(
-        self,
-        server: str,
-        tool: str,
-        arguments: dict[str, Any],
-        timeout_ms: int | None = None,
-    ) -> dict[str, Any]:
-        if self.appserver is None:
-            msg = "backend_unavailable"
-            raise ExecutionError(msg, "downstream MCP app-server is not configured")
-        effective_timeout = (
-            timeout_ms if isinstance(timeout_ms, int) and timeout_ms > 0 else 120_000
-        )
-        carrier = None
-        if self.carrier is not None:
-            try:
-                carrier = await self.carrier.thread_id("__full_access__")
-            except Exception:
-                carrier = None
-        result = None
-        if carrier:
-            try:
-                result = await self.appserver.mcp_tool_call(
-                    carrier,
-                    server,
-                    tool,
-                    arguments,
-                    timeout=max(1.0, effective_timeout / 1000.0),
-                )
-            except Exception:
-                result = None
-        if result is None:
-            try:
-                result = await self.appserver.mcp_tool_call(
-                    "__full_access__",
-                    server,
-                    tool,
-                    arguments,
-                    timeout=max(1.0, effective_timeout / 1000.0),
-                )
-            except Exception as exc:
-                msg = "backend_unavailable"
-                raise ExecutionError(msg, str(exc)) from exc
-        return {
-            "conversationId": "",
-            "server": server,
-            "tool": tool,
-            "content": (result or {}).get("content") or [],
-            "structuredContent": (result or {}).get("structuredContent"),
-            "isError": bool((result or {}).get("isError")),
-        }
 
 
 def _tool_result(data: dict[str, Any], summary: str) -> mtypes.CallToolResult:
@@ -235,7 +123,6 @@ def build_mcp(
     settings: Settings,
     orch: ExecutionService,
     auth: Authenticator | None = None,
-    appserver: Any | None = None,
 ) -> FastMCP:
     auth_settings = None
     verifier = None
@@ -245,7 +132,7 @@ def build_mcp(
             resource_server_url=TypeAdapter(AnyHttpUrl).validate_python(
                 f"{settings.public_url.rstrip('/')}/mcp"
             ),
-            required_scopes=["codex"],
+            required_scopes=["tools"],
         )
         verifier = _Verifier(auth)
     mcp = ContractFastMCP(
@@ -257,8 +144,6 @@ def build_mcp(
         token_verifier=verifier,
         streamable_http_path="/",
     )
-    forwarder = McpForwarder(appserver)
-
     def as_tool_error(exc: Exception) -> ToolError:
         if isinstance(exc, ExecutionError):
             hint = f". {exc.hint}" if exc.hint else ""
@@ -629,68 +514,5 @@ def build_mcp(
         result: dict[str, Any] = await orch.browse_dir(path or "")
         _dbg_out("browse_dir", result)
         return result
-
-    @register_tool(
-        "mcp_list_tools",
-        description="List downstream MCP servers and tools (all allowed).",
-        meta={
-            "openai/toolInvocation/invoking": "Listing MCP tools",
-            "openai/toolInvocation/invoked": "Listed MCP tools",
-        },
-        annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
-        },
-    )
-    async def mcp_list_tools(ctx: Context[Any, Any, Any]) -> dict[str, Any]:
-        _dbg_in("mcp_list_tools", {})
-        try:
-            result = await forwarder.list_tools()
-            _dbg_out("mcp_list_tools", result)
-            return result
-        except Exception as exc:
-            _dbg_err("mcp_list_tools", exc)
-            raise as_tool_error(exc) from exc
-
-    @register_tool(
-        "mcp_call_tool",
-        description="Call a downstream MCP tool (full access, no approval).",
-        meta={
-            "openai/toolInvocation/invoking": "Calling MCP tool",
-            "openai/toolInvocation/invoked": "MCP tool finished",
-        },
-        annotations={
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": False,
-            "openWorldHint": True,
-        },
-    )
-    async def mcp_call_tool(
-        ctx: Context[Any, Any, Any],
-        server: str,
-        tool: str,
-        arguments: dict[str, Any] | None = None,
-        annotations: dict[str, Any] | None = None,
-        timeoutMs: int | None = None,
-    ) -> dict[str, Any]:
-        _dbg_in(
-            "mcp_call_tool",
-            {
-                "server": server,
-                "tool": tool,
-                "arguments": arguments,
-                "timeoutMs": timeoutMs,
-            },
-        )
-        try:
-            result = await forwarder.call_tool(server, tool, arguments or {}, timeoutMs)
-            _dbg_out("mcp_call_tool", result)
-            return result
-        except Exception as exc:
-            _dbg_err("mcp_call_tool", exc)
-            raise as_tool_error(exc) from exc
 
     return mcp

@@ -22,7 +22,6 @@ interface ExecutionStatus {
   pending?: boolean;
   context?: { cwd?: string; workMode?: string; version?: number };
   capabilities?: {
-    appServerMode?: string;
     standaloneFilesystem?: string;
     remoteFilesystemBoundary?: string;
     eventTransport?: string;
@@ -101,7 +100,7 @@ function App() {
       </section>
       <aside className="run-inspector">
         <Section title="执行上下文"><div className="inspector-facts"><Fact label="对话" value={compactId(conversationId)} /><Fact label="目录" value={context.cwd ?? "未配置"} sensitive /><Fact label="工作模式" value={context.workMode ?? "未记录"} /></div></Section>
-        <Section title="运行能力"><div className="inspector-facts"><Fact label="App Server" value={snapshot.capabilities?.appServerMode ?? "未知"} /><Fact label="独立文件 RPC" value={snapshot.capabilities?.standaloneFilesystem ?? "未知"} /><Fact label="远端路径边界" value={snapshot.capabilities?.remoteFilesystemBoundary ?? "未知"} /><Fact label="事件" value={snapshot.capabilities?.eventTransport ?? "未知"} /></div></Section>
+        <Section title="运行能力"><div className="inspector-facts"><Fact label="独立文件 RPC" value={snapshot.capabilities?.standaloneFilesystem ?? "未知"} /><Fact label="远端路径边界" value={snapshot.capabilities?.remoteFilesystemBoundary ?? "未知"} /><Fact label="事件" value={snapshot.capabilities?.eventTransport ?? "未知"} /></div></Section>
       </aside>
     </div>
   </WidgetShell>;

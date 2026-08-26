@@ -24,15 +24,6 @@ DEFAULTS: dict[str, Any] = {
     "oauth_password": "",
     "oauth_callback_protection": False,
     "public_url": "",
-    "codex_command": "",
-    "codex_app_mode": "internal",
-    "codex_external_ws_url": "",
-    "codex_external_ws_key": "",
-    "codex_internal_ws_key": "",
-    "codex_release_repo": "openai/codex",
-    "codex_download_url": "",
-    "codex_ws_port": 8765,
-    "codex_auto_restart": True,
 }
 
 

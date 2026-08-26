@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { copyFileSync, rmSync } from "node:fs";
 
 // Keep every ChatGPT component template in sync with backend/app/widgets.py.
-const widgets = ["workspace-setup", "chat", "ask-user", "approval", "diff"];
+const widgets = ["workspace-setup", "chat", "ask-user", "diff"];
 rmSync("dist", { recursive: true, force: true });
 for (const w of widgets) {
   console.log(`\n=== build ${w} ===`);

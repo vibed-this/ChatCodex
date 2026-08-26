@@ -4,7 +4,7 @@ import {
   Archive, Bot, Check, ChevronRight, CircleHelp, Cloud, Code2,
   Copy, Download, ExternalLink, Eye, EyeOff, FileClock, Gauge, KeyRound, Layers3,
   LockKeyhole, LogOut, Menu, Moon, Network, Play, RefreshCw, Save,
-  Server, Settings2, Square, Sun, TerminalSquare, Users,
+  Settings2, Square, Sun, Users,
   X, Zap,
 } from "lucide-react";
 import "../styles.css";
@@ -19,12 +19,11 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "contexts" | "tunnel" | "settings" | "codex";
+type Tab = "overview" | "contexts" | "tunnel" | "settings";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "contexts", label: "执行上下文", icon: Layers3 },
   { id: "tunnel", label: "公网入口", icon: Network },
-  { id: "codex", label: "Codex", icon: TerminalSquare },
   { id: "settings", label: "设置", icon: Settings2 },
 ];
 
@@ -71,7 +70,6 @@ function App() {
           ))}
         </nav>
         <div className="m-3 rounded-xl border bg-muted/40 p-3">
-          <StatusLine label="Codex" on={overview?.appserver?.running} />
           <StatusLine label="公网入口" on={overview?.publicRoute?.running} />
           <StatusLine label="MCP Tunnel" on={overview?.chatgptTunnel?.running} />
         </div>
@@ -89,14 +87,13 @@ function App() {
             <p className="truncate text-sm font-semibold">{NAV.find((item) => item.id === tab)?.label}</p>
             <p className="truncate text-xs text-muted-foreground">ChatCodex Gateway 控制台</p>
           </div>
-          <Badge variant={overview?.appserver?.healthy ? "success" : "secondary"} className="ml-auto gap-1.5"><span className={cn("h-1.5 w-1.5 rounded-full", overview?.appserver?.healthy ? "bg-emerald-500" : "bg-muted-foreground")} />{overview?.appserver?.healthy ? "系统正常" : "等待服务"}</Badge>
+          <Badge variant={overview ? "success" : "secondary"} className="ml-auto gap-1.5"><span className={cn("h-1.5 w-1.5 rounded-full", overview ? "bg-emerald-500" : "bg-muted-foreground")} />{overview ? "系统正常" : "等待服务"}</Badge>
         </header>
         <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
           {tab === "overview" && <Overview data={overview} go={selectTab} />}
           {tab === "contexts" && <ExecutionContexts />}
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
-          {tab === "codex" && <Codex />}
         </main>
       </div>
     </div>
@@ -120,7 +117,7 @@ function Login({ onSuccess, dark, setDark }: { onSuccess(): void; dark: boolean;
         <div className="relative"><Brand inverse /></div>
         <div className="relative my-auto max-w-lg">
           <Badge className="mb-5 border-white/15 bg-white/10 text-white">本地优先的智能体网关</Badge>
-          <h1 className="text-5xl font-semibold leading-[1.08] tracking-tight">在 ChatGPT 中安全运行本地 Codex。</h1>
+          <h1 className="text-5xl font-semibold leading-[1.08] tracking-tight">在 ChatGPT 中安全运行本地工具。</h1>
           <p className="mt-5 max-w-md text-base leading-7 text-zinc-300">在此管理工作区、MCP 入口与安全隧道。</p>
         </div>
         <p className="relative text-xs text-zinc-500">Web Access Token 仅用于登录本控制台。</p>
@@ -147,7 +144,6 @@ function Overview({ data, go }: { data: any; go(tab: Tab): void }) {
   if (!data) return <Loading text="正在读取 Gateway 状态" />;
   const stats = [
     { label: "活跃上下文", value: data.executionContexts?.active ?? 0, detail: `共 ${data.executionContexts?.total ?? 0} 个工作区绑定`, icon: Users, tab: "contexts" as Tab },
-    { label: "Codex Runtime", value: data.appserver?.running ? "在线" : "离线", detail: `重启 ${data.appserver?.restartCount ?? 0} 次`, icon: Bot, tab: "codex" as Tab },
     { label: "公网入口", value: data.publicRoute?.running ? "已启用" : "未启用", detail: data.publicRoute?.kind ?? "none", icon: Cloud, tab: "tunnel" as Tab },
   ];
   const publicEndpoint = data.publicRoute?.url?.startsWith("http") ? mcpUrl(data.publicRoute.url) : data.publicRoute?.url;
@@ -172,7 +168,7 @@ function ExecutionContexts() {
     {error && <Alert>{error}</Alert>}
     {!items.length ? <Card><CardContent className="p-6"><Empty icon={FileClock} title="暂无执行上下文" detail="在 WebChat 工作区面板保存目录和安全设置后会显示在这里。" /></CardContent></Card> : <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card className="overflow-hidden"><div className="divide-y">{items.map((item) => <button key={item.id} onClick={() => { setSelected(item); }} className={cn("flex w-full items-center gap-4 p-4 text-left transition hover:bg-accent/60", selected?.id === item.id && "bg-accent")}><div className="rounded-lg bg-muted p-2"><Code2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.cwd || "未命名工作区"}</span><Badge variant={item.status === "active" ? "success" : "secondary"}>{item.status}</Badge></div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{item.conversationId}</p></div><ChevronRight className="h-4 w-4 text-muted-foreground" /></button>)}</div></Card>
-      <Card className="h-fit xl:sticky xl:top-24">{selected ? <><CardHeader className="flex-row items-start justify-between"><div><CardTitle>上下文详情</CardTitle><CardDescription className="mt-1">{selected.status}</CardDescription></div><Button size="icon" variant="ghost" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="space-y-4"><Details data={[["Conversation", selected.conversationId], ["目录", selected.cwd], ["工作区根", selected.workspaceRoots?.join(", ")], ["版本", selected.version], ["Codex agent", "禁用"]]} /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => status(selected, selected.status === "active" ? "archived" : "active")}><Archive className="h-3.5 w-3.5" />{selected.status === "active" ? "归档" : "恢复"}</Button></div></CardContent></> : <CardContent className="p-6"><Empty icon={CircleHelp} title="选择一个执行上下文" detail="查看工作区与执行版本。" /></CardContent>}</Card>
+      <Card className="h-fit xl:sticky xl:top-24">{selected ? <><CardHeader className="flex-row items-start justify-between"><div><CardTitle>上下文详情</CardTitle><CardDescription className="mt-1">{selected.status}</CardDescription></div><Button size="icon" variant="ghost" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="space-y-4"><Details data={[["Conversation", selected.conversationId], ["目录", selected.cwd], ["工作区根", selected.workspaceRoots?.join(", ")], ["版本", selected.version]]} /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => status(selected, selected.status === "active" ? "archived" : "active")}><Archive className="h-3.5 w-3.5" />{selected.status === "active" ? "归档" : "恢复"}</Button></div></CardContent></> : <CardContent className="p-6"><Empty icon={CircleHelp} title="选择一个执行上下文" detail="查看工作区与执行版本。" /></CardContent>}</Card>
     </div>}
   </Page>;
 }
@@ -263,51 +259,18 @@ function Settings() {
   const [cfg, setCfg] = useState<Record<string, any>>({}); const [audit, setAudit] = useState<any>(null); const [saved, setSaved] = useState(false); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
   useEffect(() => { api.settings("").then((d) => { setCfg(d.settings ?? {}); }); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); }, []);
   const set = (key: string, value: any) => { setCfg((now) => ({ ...now, [key]: value })); setSaved(false); };
-  async function save() { setSaving(true); setError(""); const payload = { ...cfg }; for (const key of ["web_access_token", "mcp_access_token", "oauth_password", "codex_external_ws_key", "codex_internal_ws_key"]) if (!payload[key] || payload[key] === "********") delete payload[key]; try { const result = await api.setSettings("", payload); setCfg(result.settings ?? cfg); setSaved(true); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); } catch (e) { setError(String(e)); } finally { setSaving(false); } }
-  return <Page title="Gateway 设置" description="认证、连接方式与 Codex Runtime 配置。" actions={<Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button>}>
+  async function save() { setSaving(true); setError(""); const payload = { ...cfg }; for (const key of ["web_access_token", "mcp_access_token", "oauth_password"]) if (!payload[key] || payload[key] === "********") delete payload[key]; try { const result = await api.setSettings("", payload); setCfg(result.settings ?? cfg); setSaved(true); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); } catch (e) { setError(String(e)); } finally { setSaving(false); } }
+  return <Page title="Gateway 设置" description="认证、连接方式与公网入口配置。" actions={<Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button>}>
     {error && <Alert>{error}</Alert>}
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-6">
-        <Card><CardHeader><CardTitle className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-primary" />访问与认证</CardTitle><CardDescription>Web 与 MCP 凭据相互独立，更改后需重启 Gateway。</CardDescription></CardHeader><CardContent className="space-y-6"><SecurityBlock number="01" title="Web Access Token" description="仅用于登录本控制台。"><SecretSetting value={cfg.web_access_token} onChange={(v) => { set("web_access_token", v); }} placeholder="输入新的 Web Access Token" /></SecurityBlock><Separator /><SecurityBlock number="02" title="MCP 认证" description="保护 /mcp 工具调用。Token 适合本机或 Tunnel；OAuth 需可公开访问的 HTTPS 地址。"><div className="space-y-4"><Field label="认证模式"><Select value={cfg.mcp_auth_mode ?? "token"} onValueChange={(v) => { set("mcp_auth_mode", v); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="token">仅 Token（ChatGPT Tunnel 推荐）</SelectItem><SelectItem value="both">Token + OAuth（需公网 issuer）</SelectItem><SelectItem value="oauth">仅 OAuth（需公网 issuer）</SelectItem><SelectItem value="noauth">无认证（仅本机）</SelectItem></SelectContent></Select></Field>{["token", "both"].includes(cfg.mcp_auth_mode ?? "token") && <Field label="MCP Access Token" hint="仅用于 /mcp；不要填入 Web 登录框。"><SecretSetting value={cfg.mcp_access_token} onChange={(v) => { set("mcp_access_token", v); }} placeholder="输入新的 MCP Access Token" /></Field>}{["oauth", "both"].includes(cfg.mcp_auth_mode) && <Field label="OAuth 授权密码" hint="连接时在授权页输入。"><SecretSetting value={cfg.oauth_password} onChange={(v) => { set("oauth_password", v); }} placeholder="输入新的 OAuth 授权密码" /></Field>}<Field label="固定公网 URL" hint="OAuth 需要这里的固定 HTTPS 根地址。"><Input value={cfg.public_url ?? ""} onChange={(e) => { set("public_url", e.target.value); }} placeholder="https://codex.example.com" /></Field><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>OAuth 回调保护（高级）</Label><p className="mt-1 text-xs text-muted-foreground">仅允许 https://chatgpt.com/connector/oauth/*。</p></div><Switch checked={cfg.oauth_callback_protection ?? false} onCheckedChange={(v) => { set("oauth_callback_protection", v); }} /></div></div></SecurityBlock></CardContent></Card>
+        <Card><CardHeader><CardTitle className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-primary" />访问与认证</CardTitle><CardDescription>Web 与 MCP 凭据相互独立，更改后需重启 Gateway。</CardDescription></CardHeader><CardContent className="space-y-6"><SecurityBlock number="01" title="Web Access Token" description="仅用于登录本控制台。"><SecretSetting value={cfg.web_access_token} onChange={(v) => { set("web_access_token", v); }} placeholder="输入新的 Web Access Token" /></SecurityBlock><Separator /><SecurityBlock number="02" title="MCP 认证" description="保护 /mcp 工具调用。Token 适合本机或 Tunnel；OAuth 需可公开访问的 HTTPS 地址。"><div className="space-y-4"><Field label="认证模式"><Select value={cfg.mcp_auth_mode ?? "token"} onValueChange={(v) => { set("mcp_auth_mode", v); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="token">仅 Token（ChatGPT Tunnel 推荐）</SelectItem><SelectItem value="both">Token + OAuth（需公网 issuer）</SelectItem><SelectItem value="oauth">仅 OAuth（需公网 issuer）</SelectItem><SelectItem value="noauth">无认证（仅本机）</SelectItem></SelectContent></Select></Field>{["token", "both"].includes(cfg.mcp_auth_mode ?? "token") && <Field label="MCP Access Token" hint="仅用于 /mcp；不要填入 Web 登录框。"><SecretSetting value={cfg.mcp_access_token} onChange={(v) => { set("mcp_access_token", v); }} placeholder="输入新的 MCP Access Token" /></Field>}{["oauth", "both"].includes(cfg.mcp_auth_mode) && <Field label="OAuth 授权密码" hint="连接时在授权页输入。"><SecretSetting value={cfg.oauth_password} onChange={(v) => { set("oauth_password", v); }} placeholder="输入新的 OAuth 授权密码" /></Field>}<Field label="固定公网 URL" hint="OAuth 需要这里的固定 HTTPS 根地址。"><Input value={cfg.public_url ?? ""} onChange={(e) => { set("public_url", e.target.value); }} placeholder="https://example.com" /></Field><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>OAuth 回调保护（高级）</Label><p className="mt-1 text-xs text-muted-foreground">仅允许 https://chatgpt.com/connector/oauth/*。</p></div><Switch checked={cfg.oauth_callback_protection ?? false} onCheckedChange={(v) => { set("oauth_callback_protection", v); }} /></div></div></SecurityBlock></CardContent></Card>
         <ChatGptMcpTunnel cfg={cfg} set={set} />
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="h-4 w-4 text-primary" />Codex App Server</CardTitle><CardDescription>使用官方 openai/codex 完整包，或连接独立部署的官方 WebSocket App Server。</CardDescription></CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <Field label="连接方式" className="md:col-span-2"><SimpleSelect value={cfg.codex_app_mode ?? "internal"} onChange={(v) => { set("codex_app_mode", v); }} items={[["internal", "内部服务器（native）"], ["external", "外挂 WebSocket"]]} /></Field>
-            {(cfg.codex_app_mode ?? "internal") === "internal" ? <>
-              <Field label="Codex 二进制" className="md:col-span-2" hint="留空时自动解析或下载官方 Codex。"><Input className="font-mono text-xs" value={cfg.codex_command ?? ""} onChange={(e) => { set("codex_command", e.target.value); }} placeholder="自动解析官方 Codex" /></Field>
-              <Field label="WebSocket 端口"><Input type="number" value={cfg.codex_ws_port ?? 8765} onChange={(e) => { set("codex_ws_port", Number(e.target.value)); }} /></Field>
-              <Field label="发行仓库"><Input value={cfg.codex_release_repo ?? "openai/codex"} onChange={(e) => { set("codex_release_repo", e.target.value); }} /></Field>
-              <Field label="直接下载 URL" className="md:col-span-2" hint="可选；留空时自动选择当前平台的官方包。"><Input value={cfg.codex_download_url ?? ""} onChange={(e) => { set("codex_download_url", e.target.value); }} placeholder="https://github.com/openai/codex/releases/download/…/codex-package-….tar.gz" /></Field>
-            </> : <>
-              <Field label="WebSocket URL" className="md:col-span-2"><Input className="font-mono text-xs" value={cfg.codex_external_ws_url ?? ""} onChange={(e) => { set("codex_external_ws_url", e.target.value); }} placeholder="wss://host/codex" /></Field>
-              <Field label="WebSocket 密钥" className="md:col-span-2" hint="连接外挂 App Server 的 Bearer 密钥。"><SecretSetting value={cfg.codex_external_ws_key} onChange={(v) => { set("codex_external_ws_key", v); }} placeholder="输入外挂 App Server 密钥" /></Field>
-            </>}
-            <div className="flex items-center justify-between rounded-lg border p-3"><div><Label>崩溃自动重启</Label><p className="mt-1 text-xs text-muted-foreground">异常退出后自动恢复</p></div><Switch checked={cfg.codex_auto_restart ?? true} onCheckedChange={(v) => { set("codex_auto_restart", v); }} /></div>
-            <Alert>Codex agent / thread 已禁用，仅执行独立 RPC。</Alert>
-          </CardContent>
-        </Card>
+
       </div>
       <div className="space-y-4 xl:sticky xl:top-24 xl:h-fit"><Card><CardHeader><CardTitle>OAuth Metadata 自检</CardTitle><CardDescription>检查当前运行实例的 OAuth 配置是否完整。</CardDescription></CardHeader><CardContent className="space-y-3"><Badge variant={audit?.complete ? "success" : audit?.enabled ? "warning" : "secondary"}>{audit?.complete ? "配置完整" : audit?.enabled ? "需要修复" : "OAuth 未启用"}</Badge>{audit?.issues?.map((issue: string) => <p key={issue} className="text-xs leading-5 text-destructive">{issue}</p>)}</CardContent></Card><Alert tone="warning">认证类改动需重启 Gateway 才会生效；修改 Web Token 后需重新登录。</Alert></div>
     </div>
   </Page>;
-}
-
-function Codex() {
-  const [state, setState] = useState<any>(null);
-  const [nativeState, setNativeState] = useState<any>(null);
-  const [busy, setBusy] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [archivePath, setArchivePath] = useState("");
-  const [error, setError] = useState("");
-  const load = () => { api.appserverStatus("").then(setState).catch(() => {}); api.nativeStatus("").then(setNativeState).catch(() => {}); };
-  useEffect(() => { load(); const timer = setInterval(load, 3000); return () => { clearInterval(timer); }; }, []);
-  async function restart() { setBusy(true); setError(""); try { await api.appserverRestart(""); load(); } catch (e) { setError(String(e)); } finally { setBusy(false); } }
-  async function install() { setInstalling(true); setError(""); try { await api.installCodex("", { archivePath: archivePath.trim() }); load(); } catch (e) { setError(String(e)); } finally { setInstalling(false); } }
-  const capabilityText = state?.apiCapabilities
-    ? Object.entries(state.apiCapabilities).map(([name, enabled]) => `${name}: ${enabled ? "✓" : "×"}`).join(" · ")
-    : "尚未检测";
-  return <Page title="Codex Runtime" description="管理官方 Codex App Server 进程。"><div className="grid gap-6 xl:grid-cols-[1fr_.7fr]"><Card><CardHeader className="flex-row items-center gap-4"><div className={cn("rounded-xl p-3", state?.running ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}><Server className="h-5 w-5" /></div><div><CardTitle>{state?.running ? "App Server 正在运行" : "App Server 已停止"}</CardTitle><CardDescription>{state?.mode ?? "internal"} · PID {state?.pid ?? "—"} · 运行 {state?.uptimeSec ?? 0}s</CardDescription></div><Badge variant={state?.apiCompatible === true ? "success" : state?.apiCompatible === false ? "warning" : "secondary"} className="ml-auto">官方 API {state?.apiCompatible === true ? "可用" : state?.apiCompatible === false ? "不兼容" : "待检测"}</Badge></CardHeader><CardContent>{state?.apiWarning && <Alert tone="warning">{state.apiWarning}</Alert>}{error && <Alert>{error}</Alert>}<Details data={[["User agent", state?.userAgent], ["Platform", state?.platformOs || state?.platformFamily], ["API", capabilityText], ["执行模式", state?.executionCapabilities?.codexAgentSessions === false ? "无 Codex agent 会话" : "未知"], ["审批", state?.executionCapabilities?.fallbackApproval ? "App Server 原生优先 / Gateway 补位" : "不可用"], ["Exec policy", state?.executionCapabilities?.execPolicyMode], ["独立文件 RPC", state?.executionCapabilities?.standaloneFilesystem], ["远端路径边界", state?.executionCapabilities?.remoteFilesystemBoundary], ["事件", state?.executionCapabilities?.eventTransport], ["Listen", state?.listen], ["Codex home", state?.codexHome], ["Target", nativeState?.codexTarget], ["Native", nativeState?.codexCommand || "未安装"], ["重启次数", state?.restartCount ?? 0]]} /><div className="mt-5 flex flex-wrap gap-2"><Button onClick={restart} disabled={busy}>{busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}重启 / 重连</Button><Button variant="outline" onClick={() => api.appserverStop("").then(load)}><Square className="h-3.5 w-3.5" />停止</Button></div><div className="mt-5 space-y-3 rounded-lg border p-3"><Field label="本地官方完整包（可选）" hint="留空时自动下载当前平台的官方 Codex 包。"><Input value={archivePath} onChange={(e) => { setArchivePath(e.target.value); }} placeholder="C:\path\codex-package-x86_64-pc-windows-msvc.tar.gz" className="font-mono text-xs" /></Field><Button variant="outline" onClick={install} disabled={installing}>{installing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}安装 / 更新官方 Codex</Button></div></CardContent></Card></div></Page>;
 }
 
 function Brand({ inverse = false }: { inverse?: boolean }) { return <div className={cn("flex h-16 items-center gap-3 px-5", inverse && "px-0")}><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Bot className="h-5 w-5" /></div><div><p className={cn("text-sm font-semibold tracking-tight", inverse && "text-white")}>ChatCodex</p><p className={cn("text-[11px] text-muted-foreground", inverse && "text-zinc-400")}>Local agent gateway</p></div></div>; }
@@ -316,7 +279,6 @@ function Page({ title, description, actions, children }: { title: string; descri
 function Field({ label, hint, className, children }: { label: string; hint?: string; className?: string; children: React.ReactNode }) { return <div className={cn("space-y-2", className)}><Label>{label}</Label>{children}{hint && <p className="text-xs leading-5 text-muted-foreground">{hint}</p>}</div>; }
 function SecretInput({ value, setValue, placeholder }: { value: string; setValue(v: string): void; placeholder: string }) { const [show, setShow] = useState(false); return <div className="relative"><Input type={show ? "text" : "password"} value={value} onChange={(e) => { setValue(e.target.value); }} placeholder={placeholder} className="pr-10 font-mono text-xs" /><Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-9 w-9" onClick={() => { setShow(!show); }}>{show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</Button></div>; }
 function SecretSetting({ value, onChange, placeholder }: { value: string; onChange(v: string): void; placeholder: string }) { const configured = value === "********"; return <SecretInput value={configured ? "" : (value ?? "")} setValue={onChange} placeholder={configured ? "已配置 · 留空保持现值" : placeholder} />; }
-function SimpleSelect({ value, onChange, items }: { value: string; onChange(v: string): void; items: string[][] }) { return <Select value={value} onValueChange={onChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{items.map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}</SelectContent></Select>; }
 function SecurityBlock({ number, title, description, children }: { number: string; title: string; description: string; children: React.ReactNode }) { return <div className="grid gap-4 md:grid-cols-[180px_1fr]"><div><span className="font-mono text-xs text-primary">{number}</span><p className="mt-1 text-sm font-semibold">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div><div>{children}</div></div>; }
 function Boundary({ icon: Icon, title, value, detail }: { icon: React.ElementType; title: string; value: string; detail: string }) { return <div className="flex items-center gap-3 rounded-lg border p-3"><Icon className="h-4 w-4 text-primary" /><div className="min-w-0"><p className="text-sm font-medium">{title} <span className="text-muted-foreground">· {value}</span></p><p className="text-xs text-muted-foreground">{detail}</p></div></div>; }
 function StatusLine({ label, on }: { label: string; on?: boolean }) { return <div className="flex items-center gap-2 py-1 text-xs"><span className={cn("h-2 w-2 rounded-full", on ? "bg-emerald-500" : "bg-muted-foreground/40")} /><span className="text-muted-foreground">{label}</span><span className="ml-auto font-medium">{on ? "在线" : "离线"}</span></div>; }

@@ -12,10 +12,7 @@ import secrets
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from .approval import ApprovalBridge
-from .appserver import AppServerManager
 from .config import Settings, load_settings
-from .events import EventBroker
 from .execution import ExecutionService
 from .mcp.server import build_mcp
 from .native import NativeRuntimeManager
@@ -36,10 +33,7 @@ class Runtime:
     native: NativeRuntimeManager
     auth: Authenticator
     web_auth: WebAuthenticator
-    appserver: AppServerManager
     tunnels: TunnelManager
-    events: EventBroker
-    approval: ApprovalBridge
     execution: ExecutionService
     mcp: FastMCP
     generated_web_token: bool
@@ -79,10 +73,6 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         msg = "CHATCODEX_MCP_AUTH_MODE must be token, oauth, both, or noauth"
         raise ValueError(msg)
 
-    internal_ws_key = override(
-        "codex_internal_ws_key", settings.codex_internal_ws_key
-    ) or secrets.token_urlsafe(48)
-    settings_store.set("codex_internal_ws_key", internal_ws_key)
     oauth_token_secret = override("oauth_token_secret", settings.oauth_token_secret)
     if not oauth_token_secret or oauth_token_secret == "dev-secret-change-me":
         oauth_token_secret = secrets.token_urlsafe(48)
@@ -117,21 +107,6 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
             "chatgpt_tunnel_id": override(
                 "chatgpt_tunnel_id", settings.chatgpt_tunnel_id
             ),
-            "codex_app_mode": override("codex_app_mode", settings.codex_app_mode),
-            "codex_command": override("codex_command", settings.codex_command),
-            "codex_external_ws_url": override(
-                "codex_external_ws_url", settings.codex_external_ws_url
-            ),
-            "codex_external_ws_key": override(
-                "codex_external_ws_key", settings.codex_external_ws_key
-            ),
-            "codex_internal_ws_key": internal_ws_key,
-            "codex_release_repo": override(
-                "codex_release_repo", settings.codex_release_repo
-            ),
-            "codex_download_url": override(
-                "codex_download_url", settings.codex_download_url
-            ),
             "tunnel_client_command": override(
                 "tunnel_client_command", settings.tunnel_client_command
             ),
@@ -147,17 +122,9 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
     native = NativeRuntimeManager(settings.native_dir)
     auth = Authenticator(settings, db=db)
     web_auth = WebAuthenticator(settings.web_access_token)
-    appserver = AppServerManager(
-        settings,
-        port=int(override("codex_ws_port", settings.codex_ws_port)),
-        auto_restart=bool(override("codex_auto_restart", True)),
-        native=native,
-    )
     tunnels = TunnelManager(settings, native=native)
-    events = EventBroker()
-    approval = ApprovalBridge(appserver, db, events=events)
     execution = ExecutionService(settings)
-    mcp = build_mcp(settings, execution, auth, appserver)
+    mcp = build_mcp(settings, execution, auth)
     return Runtime(
         settings,
         db,
@@ -165,10 +132,7 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         native,
         auth,
         web_auth,
-        appserver,
         tunnels,
-        events,
-        approval,
         execution,
         mcp,
         generated_web_token,

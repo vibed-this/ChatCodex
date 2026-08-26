@@ -83,7 +83,7 @@ class TokenSigner:
                     "exp": now + (self.ttl if ttl is None else ttl),
                     "iss": self.issuer,
                     "aud": audience or self.audience,
-                    "scope": " ".join(scopes or ["codex"]),
+                    "scope": " ".join(scopes or ["tools"]),
                     "client_id": client_id,
                     "token_use": token_use,
                 },
@@ -222,9 +222,9 @@ class OAuthStore:
         if "scope" in meta and (
             not isinstance(meta.get("scope"), str)
             or not set(meta["scope"].split())
-            or not set(meta["scope"].split()).issubset({"codex"})
+            or not set(meta["scope"].split()).issubset({"tools"})
         ):
-            msg = "scope must contain only codex"
+            msg = "scope must contain only tools"
             raise ValueError(msg)
         cid = secrets.token_hex(16)
         allowed = {
@@ -386,7 +386,7 @@ class Authenticator:
     ) -> Principal | None:
         if self.mode == "noauth":
             if remote_addr in ("127.0.0.1", "::1", ""):
-                return Principal(user_id="local", scopes=["codex"])
+                return Principal(user_id="local", scopes=["tools"])
             return None
         if not authorization_header or not authorization_header.lower().startswith(
             "bearer "
@@ -398,7 +398,7 @@ class Authenticator:
                 token, self.settings.mcp_access_token
             ):
                 return Principal(
-                    user_id="mcp-token", scopes=["codex"], client_id="mcp-token"
+                    user_id="mcp-token", scopes=["tools"], client_id="mcp-token"
                 )
             if self.mode == "token":
                 return None

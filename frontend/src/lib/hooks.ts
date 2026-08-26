@@ -84,7 +84,7 @@ export function usePrivateCapabilities(): PrivateCapabilities {
   return capabilities;
 }
 
-/** 读 toolInput(approval-gated 时可能为 null,宿主批准后经 tool-input 通知下发)。 */
+/** 读取当前工具输入；宿主可能在异步工具通知后补充输入。 */
 export function useToolInput<T = any>(): T | null {
   const [input, setInput] = useState<T | null>(OA.toolInput<T>());
   useEffect(() => {
@@ -127,7 +127,6 @@ export function useIntrinsicHeight(dep: any[] = []) {
     const ro = new ResizeObserver(report);
     ro.observe(document.body);
     return () => { ro.disconnect(); window.cancelAnimationFrame(frame); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, dep);
 }
 

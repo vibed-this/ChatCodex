@@ -13,7 +13,7 @@ from typing import Annotated, Any, TypeVar
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
 from .native import NativeRuntimeError
@@ -27,10 +27,7 @@ settings_store = None
 native = None
 auth = None
 web_auth = None
-appserver = None
 tunnels = None
-events = None
-approval = None
 orch = None
 mcp = None
 _GENERATED_WEB_TOKEN = False
@@ -49,11 +46,6 @@ def _require(value: _T | None) -> _T:
 _PUBLIC_ROUTE_KINDS = {"direct", "cloudflared-try", "cloudflared-named"}
 _PUBLIC_ROUTE_INSTANCE = "public-route"
 _CHATGPT_MCP_INSTANCE = "chatgpt-mcp"
-
-
-def _reset_codex_runtime() -> None:
-    if approval is not None:
-        _require(approval).cancel_pending()
 
 
 class _ReloadableAsgi:
@@ -134,22 +126,8 @@ def _activate_tunnel_public_url(public_url: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    global \
-        runtime, \
-        settings, \
-        db, \
-        settings_store, \
-        native, \
-        auth, \
-        web_auth, \
-        appserver, \
-        tunnels, \
-        events, \
-        approval, \
-        orch, \
-        mcp, \
-        _GENERATED_WEB_TOKEN, \
-        _GENERATED_MCP_TOKEN
+    global runtime, settings, db, settings_store, native, auth, web_auth, tunnels, orch, mcp
+    global _GENERATED_WEB_TOKEN, _GENERATED_MCP_TOKEN
     runtime = create_runtime()
     settings = runtime.settings
     db = runtime.db
@@ -157,38 +135,23 @@ async def lifespan(app: FastAPI) -> Any:
     native = runtime.native
     auth = runtime.auth
     web_auth = runtime.web_auth
-    appserver = runtime.appserver
     tunnels = runtime.tunnels
-    events = runtime.events
-    approval = runtime.approval
     orch = runtime.execution
     mcp = runtime.mcp
     _require(tunnels).on_public_url = _activate_tunnel_public_url
     _GENERATED_WEB_TOKEN = runtime.generated_web_token
     _GENERATED_MCP_TOKEN = runtime.generated_mcp_token
     _mcp_asgi.replace(_require(mcp).streamable_http_app())
-
-    async def on_server_request(msg: dict[str, Any]) -> dict[str, Any]:
-        return await _require(approval).handle(msg)
-
-    _require(appserver).on_server_request(on_server_request)
-    _require(appserver).on_reset(_reset_codex_runtime)
-    _print_startup_banner()
-    with suppress(Exception):
-        await _require(appserver).start()
     await _autostart_transports()
     try:
         async with _require(mcp).session_manager.run():
             yield
     finally:
         await _require(tunnels).stop()
-        await _require(appserver).stop()
         runtime.close()
 
 
 async def _autostart_transports() -> None:
-    if not _require(appserver).status().get("running"):
-        return
     route = settings.public_route_kind.strip()
     if route:
         try:
@@ -302,12 +265,11 @@ principal = web_principal
 
 @app.get("/healthz")
 async def healthz() -> Any:
-    st = _require(appserver).status()
     return {
-        "ok": st.get("healthy", False),
-        "appserver": st.get("running", False),
-        "healthy": st.get("healthy", False),
+        "ok": True,
+        "healthy": True,
         "auth": {"web": "token", "mcp": settings.mcp_auth_mode},
+        "tools": _require(orch).capabilities(),
     }
 
 
@@ -374,7 +336,7 @@ def _protected_resource_metadata() -> dict[str, Any]:
         "resource": _require(auth).resource,
         "authorization_servers": [_require(auth).public_url],
         "bearer_methods_supported": ["header"],
-        "scopes_supported": ["codex"],
+        "scopes_supported": ["tools"],
     }
 
 
@@ -387,7 +349,7 @@ def _authorization_server_metadata() -> dict[str, Any]:
         "registration_endpoint": f"{base}/oauth/register",
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "response_types_supported": ["code"],
-        "scopes_supported": ["codex"],
+        "scopes_supported": ["tools"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
     }
@@ -475,7 +437,7 @@ async def _read_body_limited(request: Request, max_bytes: int) -> bytes:
     return bytes(body)
 
 
-_CONSENT_HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>授权 · ChatCodex</title><style>:root{color-scheme:light}*{box-sizing:border-box}body{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff;color:#0d0d0d}.card{width:100%;max-width:400px;padding:40px 32px}.logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}.logo .mark{width:34px;height:34px;border-radius:9px;background:#10a37f;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px}.logo .name{font-size:17px;font-weight:600}h1{font-size:22px;margin:0 0 8px;letter-spacing:-.01em}.sub{color:#6e6e6e;font-size:14px;margin:0 0 22px;line-height:1.5}.client,.scope{background:#f7f7f8;border:1px solid #ececf1;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px}.scope{display:flex;gap:8px;align-items:flex-start}.scope .dot{color:#10a37f;margin-top:1px}label{display:block;font-size:13px;font-weight:600;margin:0 0 6px}input[type=password]{width:100%;padding:11px 13px;border:1px solid #d9d9e3;border-radius:9px;font-size:14px;outline:none;margin-bottom:6px}input[type=password]:focus{border-color:#10a37f;box-shadow:0 0 0 3px rgba(16,163,127,.15)}.err{color:#d92d20;font-size:13px;min-height:18px;margin-bottom:6px}button{width:100%;padding:12px;border:0;border-radius:9px;background:#10a37f;color:#fff;font-size:15px;font-weight:600;cursor:pointer}button:hover{background:#0e8f6f}.deny{background:transparent;color:#6e6e6e;border:1px solid #d9d9e3;margin-top:10px}.deny:hover{background:#f7f7f8}.foot{text-align:center;color:#9b9b9b;font-size:12px;margin-top:22px}</style></head><body><div class=card><div class=logo><div class=mark>C</div><div class=name>ChatCodex</div></div><h1>授权访问 Codex</h1><p class=sub>应用请求连接到你的 Codex 工作区,以读写文件、运行命令。</p><div class=client>应用:<b>{client}</b></div><div class=scope><span class=dot>●</span><span>权限范围:{scope}</span></div><form method=post action="/oauth/authorize">{hidden}{password_field}<div class=err>{error}</div><button type=submit>允许并继续</button></form><form method=post action="/oauth/authorize">{hidden}<input type=hidden name=deny value=1><button type=submit class=deny>拒绝</button></form><div class=foot>授权即代表你信任此应用访问 Codex 工作区</div></div></body></html>"""
+_CONSENT_HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>授权 · ChatCodex</title><style>:root{color-scheme:light}*{box-sizing:border-box}body{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff;color:#0d0d0d}.card{width:100%;max-width:400px;padding:40px 32px}.logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}.logo .mark{width:34px;height:34px;border-radius:9px;background:#10a37f;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px}.logo .name{font-size:17px;font-weight:600}h1{font-size:22px;margin:0 0 8px;letter-spacing:-.01em}.sub{color:#6e6e6e;font-size:14px;margin:0 0 22px;line-height:1.5}.client,.scope{background:#f7f7f8;border:1px solid #ececf1;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px}.scope{display:flex;gap:8px;align-items:flex-start}.scope .dot{color:#10a37f;margin-top:1px}label{display:block;font-size:13px;font-weight:600;margin:0 0 6px}input[type=password]{width:100%;padding:11px 13px;border:1px solid #d9d9e3;border-radius:9px;font-size:14px;outline:none;margin-bottom:6px}input[type=password]:focus{border-color:#10a37f;box-shadow:0 0 0 3px rgba(16,163,127,.15)}.err{color:#d92d20;font-size:13px;min-height:18px;margin-bottom:6px}button{width:100%;padding:12px;border:0;border-radius:9px;background:#10a37f;color:#fff;font-size:15px;font-weight:600;cursor:pointer}button:hover{background:#0e8f6f}.deny{background:transparent;color:#6e6e6e;border:1px solid #d9d9e3;margin-top:10px}.deny:hover{background:#f7f7f8}.foot{text-align:center;color:#9b9b9b;font-size:12px;margin-top:22px}</style></head><body><div class=card><div class=logo><div class=mark>C</div><div class=name>ChatCodex</div></div><h1>授权访问本地工具</h1><p class=sub>应用请求访问你的本地工作区，以读写文件、运行命令。</p><div class=client>应用:<b>{client}</b></div><div class=scope><span class=dot>●</span><span>权限范围:{scope}</span></div><form method=post action="/oauth/authorize">{hidden}{password_field}<div class=err>{error}</div><button type=submit>允许并继续</button></form><form method=post action="/oauth/authorize">{hidden}<input type=hidden name=deny value=1><button type=submit class=deny>拒绝</button></form><div class=foot>授权即代表你信任此应用访问本地工作区</div></div></body></html>"""
 
 
 def _consent_page(
@@ -558,7 +520,7 @@ async def oauth_authorize_get(
     redirect_uri: str = "",
     code_challenge: str = "",
     code_challenge_method: str = "S256",
-    scope: str = "codex",
+    scope: str = "tools",
     state: str = "",
     resource: str = "",
 ) -> Any:
@@ -605,7 +567,7 @@ async def oauth_authorize_post(request: Request) -> Any:
     redirect_uri = str(form.get("redirect_uri", ""))
     code_challenge = str(form.get("code_challenge", ""))
     method = str(form.get("code_challenge_method", "S256"))
-    scope = str(form.get("scope", "codex"))
+    scope = str(form.get("scope", "tools"))
     state = str(form.get("state", ""))
     if len(state) > 2048:
         raise HTTPException(400, "invalid_state")
@@ -685,7 +647,7 @@ async def oauth_token(request: Request) -> Any:
             raise HTTPException(400, "invalid_client")
         return _oauth_token_response(
             rec["user_id"],
-            rec.get("scope", "codex").split(),
+            rec.get("scope", "tools").split(),
             rec.get("resource", ""),
             rec.get("client_id", ""),
             client,
@@ -777,7 +739,7 @@ def _validate_authorization(
     if method != "S256" or not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):
         raise HTTPException(400, "invalid_code_challenge")
     scopes = set(scope.split())
-    if not scopes or not scopes.issubset({"codex"}):
+    if not scopes or not scopes.issubset({"tools"}):
         raise HTTPException(400, "invalid_scope")
     if not _require(auth).accepts_resource(resource):
         raise HTTPException(400, "invalid_target")
@@ -792,131 +754,6 @@ def _oauth_redirect(redirect_uri: str, **params: str) -> str:
     return urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
     )
-
-
-@app.get("/api/approvals")
-async def approvals(conversationId: str = "", p: Principal = Depends(principal)) -> Any:
-    return {"pending": _require(approval).list_pending(conversationId or None)}
-
-
-@app.post("/api/approvals/{request_id}/decision")
-async def approval_decision(
-    request_id: str, request: Request, p: Annotated[Principal, Depends(principal)]
-) -> Any:
-    body = await request.json()
-    ok = await _require(approval).resolve(
-        request_id,
-        {
-            "action": body.get("decision") or "decline",
-            "answers": body.get("answers"),
-            "content": body.get("content"),
-            "permissions": body.get("permissions"),
-            "scope": body.get("scope"),
-        },
-        conversation_id=body.get("conversationId"),
-        expected_version=body.get("expectedVersion"),
-        decided_by=p.user_id,
-    )
-    if not ok:
-        raise HTTPException(
-            409, "approval is missing, expired, changed, or already resolved"
-        )
-    return {"resolved": True, "requestId": request_id}
-
-
-@app.get("/api/events")
-async def event_stream(
-    request: Request,
-    conversationId: str,
-    lastEventId: int = 0,
-    p: Principal = Depends(principal),
-) -> Any:
-    if not conversationId:
-        raise HTTPException(422, "conversationId is required")
-    header_id = request.headers.get("last-event-id", "")
-    try:
-        after_id = max(lastEventId, int(header_id or 0))
-    except ValueError:
-        after_id = max(lastEventId, 0)
-
-    async def stream() -> Any:
-        nonlocal after_id
-        capabilities = {
-            "eventId": after_id,
-            "conversationId": conversationId,
-            "capabilities": _require(orch).capabilities(),
-        }
-        yield f"event: runtime.capabilities\ndata: {json.dumps(capabilities, ensure_ascii=False)}\n\n"
-        while not await request.is_disconnected():
-            delivered = False
-            async for item in _require(events).subscribe(conversationId, after_id):
-                delivered = True
-                after_id = item.event_id
-                yield item.as_sse()
-                if await request.is_disconnected():
-                    return
-            if not delivered:
-                yield ": heartbeat\n\n"
-
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@app.get("/api/appserver/status")
-async def appserver_status(p: Annotated[Principal, Depends(principal)]) -> Any:
-    return {
-        **_require(appserver).status(),
-        "executionCapabilities": _require(orch).capabilities(),
-    }
-
-
-@app.post("/api/appserver/restart")
-async def appserver_restart(p: Annotated[Principal, Depends(principal)]) -> Any:
-    try:
-        return await _require(appserver).restart()
-    except Exception as e:
-        raise HTTPException(500, f"restart failed: {e}")
-
-
-@app.post("/api/appserver/stop")
-async def appserver_stop(p: Annotated[Principal, Depends(principal)]) -> Any:
-    await _require(appserver).stop()
-    return {"running": False}
-
-
-@app.get("/api/native/status")
-async def native_status(p: Annotated[Principal, Depends(principal)]) -> Any:
-    return _require(native).status()
-
-
-@app.post("/api/native/codex/install")
-async def native_codex_install(
-    request: Request, p: Annotated[Principal, Depends(principal)]
-) -> Any:
-    body = await request.json()
-    try:
-        result = await asyncio.to_thread(
-            _require(native).install_codex,
-            repository=(body.get("repository") or settings.codex_release_repo),
-            source_url=body.get("url", ""),
-            archive_path=body.get("archivePath", ""),
-            github_token=body.get("githubToken", ""),
-        )
-        _require(settings_store).set("codex_command", result["codexCommand"])
-        _require(appserver).settings = replace(
-            _require(appserver).settings, codex_command=result["codexCommand"]
-        )
-        _require(orch).settings = _require(appserver).settings
-        return result
-    except NativeRuntimeError as exc:
-        raise HTTPException(422, str(exc)) from exc
 
 
 @app.post("/api/native/tunnel-client/install")
@@ -941,10 +778,8 @@ async def native_tunnel_install(
 @app.get("/api/overview")
 async def overview(p: Annotated[Principal, Depends(principal)]) -> Any:
     return {
-        "appserver": _require(appserver).status(),
         "publicRoute": _require(tunnels).status(_PUBLIC_ROUTE_INSTANCE),
         "chatgptTunnel": _require(tunnels).status(_CHATGPT_MCP_INSTANCE),
-        "pendingApprovals": len(_require(approval).list_pending()),
         "executionCapabilities": _require(orch).capabilities(),
         "auth": {"web": "token", "mcp": settings.mcp_auth_mode},
     }
@@ -988,11 +823,6 @@ async def set_settings(
         "noauth",
     }:
         raise HTTPException(422, "mcp_auth_mode must be token, oauth, both, or noauth")
-    if "codex_app_mode" in body and body["codex_app_mode"] not in {
-        "internal",
-        "external",
-    }:
-        raise HTTPException(422, "codex_app_mode must be internal or external")
     if "public_route_kind" in body and body[
         "public_route_kind"
     ] not in _PUBLIC_ROUTE_KINDS | {""}:
@@ -1002,7 +832,6 @@ async def set_settings(
         )
     bool_settings = {
         "oauth_callback_protection",
-        "codex_auto_restart",
         "tunnel_auto_restart",
         "chatgpt_tunnel_enabled",
     }
@@ -1013,19 +842,6 @@ async def set_settings(
         raise HTTPException(
             422, f"settings must be boolean: {', '.join(invalid_bools)}"
         )
-    if "codex_ws_port" in body:
-        value = body["codex_ws_port"]
-        if isinstance(value, bool):
-            raise HTTPException(422, "codex_ws_port must be an integer from 1 to 65535")
-        try:
-            value = int(value)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                422, "codex_ws_port must be an integer from 1 to 65535"
-            ) from exc
-        if not 1 <= value <= 65535:
-            raise HTTPException(422, "codex_ws_port must be an integer from 1 to 65535")
-        body["codex_ws_port"] = value
     body.pop("tunnel_kind", None)
     body.pop("chatgpt_api_key", None)
     body.pop("cloudflared_token", None)
@@ -1037,12 +853,6 @@ async def set_settings(
     if any(
         key in body
         for key in (
-            "codex_command",
-            "codex_app_mode",
-            "codex_external_ws_url",
-            "codex_external_ws_key",
-            "codex_release_repo",
-            "codex_download_url",
             "tunnel_client_command",
             "tunnel_client_release",
             "tunnel_auto_restart",
@@ -1051,22 +861,8 @@ async def set_settings(
             "public_route_kind",
         )
     ):
-        runtime = replace(
-            _require(appserver).settings,
-            codex_command=updated.get("codex_command") or settings.codex_command,
-            codex_app_mode=updated.get("codex_app_mode") or settings.codex_app_mode,
-            codex_external_ws_url=(
-                updated.get("codex_external_ws_url") or settings.codex_external_ws_url
-            ),
-            codex_external_ws_key=(
-                updated.get("codex_external_ws_key") or settings.codex_external_ws_key
-            ),
-            codex_release_repo=(
-                updated.get("codex_release_repo") or settings.codex_release_repo
-            ),
-            codex_download_url=(
-                updated.get("codex_download_url") or settings.codex_download_url
-            ),
+        runtime_settings = replace(
+            settings,
             tunnel_client_command=(
                 updated.get("tunnel_client_command") or settings.tunnel_client_command
             ),
@@ -1081,14 +877,7 @@ async def set_settings(
             public_route_kind=(updated.get("public_route_kind") or ""),
             tunnel_kind=(updated.get("public_route_kind") or ""),
         )
-        _require(appserver).settings = runtime
-        _require(orch).settings = runtime
-        _require(tunnels).settings = runtime
-    if "codex_ws_port" in body:
-        _require(appserver).port = int(updated["codex_ws_port"])
-        _require(appserver).configured_port = _require(appserver).port
-    if "codex_auto_restart" in body:
-        _require(appserver).auto_restart = bool(updated["codex_auto_restart"])
+        _require(tunnels).settings = runtime_settings
     restart_required = sorted(
         set(body)
         & {
@@ -1100,20 +889,9 @@ async def set_settings(
             "public_url",
         }
     )
-    appserver_restart_required = sorted(
-        set(body)
-        & {
-            "codex_command",
-            "codex_app_mode",
-            "codex_external_ws_url",
-            "codex_external_ws_key",
-            "codex_ws_port",
-        }
-    )
     return {
         "settings": _masked_settings(_effective_settings()),
         "restartRequired": restart_required,
-        "appserverRestartRequired": appserver_restart_required,
     }
 
 
@@ -1125,8 +903,6 @@ def _masked_settings(values: dict[str, Any]) -> dict[str, Any]:
         "oauth_password",
         "cloudflared_token",
         "chatgpt_api_key",
-        "codex_external_ws_key",
-        "codex_internal_ws_key",
     ):
         values[key] = "********" if values.get(key) else ""
     return values
@@ -1148,14 +924,6 @@ def _effective_settings() -> dict[str, Any]:
         "oauth_password": settings.oauth_password,
         "oauth_callback_protection": settings.oauth_callback_protection,
         "public_url": settings.public_url,
-        "codex_app_mode": settings.codex_app_mode,
-        "codex_command": settings.codex_command,
-        "codex_external_ws_url": settings.codex_external_ws_url,
-        "codex_external_ws_key": settings.codex_external_ws_key,
-        "codex_internal_ws_key": settings.codex_internal_ws_key,
-        "codex_release_repo": settings.codex_release_repo,
-        "codex_download_url": settings.codex_download_url,
-        "codex_ws_port": settings.codex_ws_port,
     }
     for key, fallback in fallbacks.items():
         override = _require(settings_store).get_override(key)

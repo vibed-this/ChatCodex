@@ -30,13 +30,6 @@ export const api = {
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
   setSettings: (token: string, kv: Record<string, any>) =>
     req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),
-  // app-server
-  appserverStatus: (token: string) => req(token, "/api/appserver/status"),
-  appserverRestart: (token: string) => req(token, "/api/appserver/restart", { method: "POST" }),
-  appserverStop: (token: string) => req(token, "/api/appserver/stop", { method: "POST" }),
-  nativeStatus: (token: string) => req(token, "/api/native/status"),
-  installCodex: (token: string, body: any = {}) =>
-    req(token, "/api/native/codex/install", { method: "POST", body: JSON.stringify(body) }),
   installTunnelClient: (token: string, release = "") =>
     req(token, "/api/native/tunnel-client/install", { method: "POST", body: JSON.stringify({ release }) }),
   // 全局公网入口：仅 direct / cloudflared

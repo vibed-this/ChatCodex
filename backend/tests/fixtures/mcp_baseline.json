@@ -15,8 +15,6 @@
     "edit",
     "glob",
     "grep",
-    "mcp_call_tool",
-    "mcp_list_tools",
     "read",
     "request_user_input",
     "update_plan",

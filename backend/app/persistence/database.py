@@ -17,25 +17,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS approval_audit (
-  id              TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL,
-  operation_id    TEXT,
-  source          TEXT NOT NULL,
-  state           TEXT NOT NULL,
-  kind            TEXT,
-  request_id      TEXT,
-  summary         TEXT,
-  payload         TEXT,
-  decision        TEXT,
-  decided_by      TEXT,
-  action_digest   TEXT,
-  context_version INTEGER,
-  request_version INTEGER,
-  created_at      INTEGER,
-  decided_at      INTEGER
-);
-
 CREATE TABLE IF NOT EXISTS kv_config (
   key   TEXT PRIMARY KEY,
   value TEXT

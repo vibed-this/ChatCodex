@@ -1,10 +1,9 @@
 # Copyright (c) 2026 ChatCodex contributors.
-"""Download and resolve native Codex and tunnel-client runtime packages."""
+"""Download and resolve native tunnel-client runtime packages."""
 
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import platform
 import shutil
@@ -38,20 +37,6 @@ class NativeRuntimeManager:
         self.root.mkdir(parents=True, exist_ok=True)
 
     @property
-    def codex_target(self) -> str:
-        arch = _arch()
-        system = platform.system().lower()
-        if system == "windows":
-            return f"{arch}-pc-windows-msvc"
-        if system == "darwin":
-            return f"{arch}-apple-darwin"
-        if system == "linux":
-            # Official complete Codex packages are published as static musl builds.
-            return f"{arch}-unknown-linux-musl"
-        msg = f"unsupported operating system: {system}"
-        raise NativeRuntimeError(msg)
-
-    @property
     def tunnel_target(self) -> str:
         arch = {"x86_64": "amd64", "aarch64": "arm64"}[_arch()]
         system = platform.system().lower()
@@ -59,27 +44,6 @@ class NativeRuntimeManager:
             msg = f"unsupported operating system: {system}"
             raise NativeRuntimeError(msg)
         return f"{system}-{arch}"
-
-    def internal_token_file(self, token: str) -> str:
-        secret_dir = self.root / "secrets"
-        secret_dir.mkdir(parents=True, exist_ok=True)
-        path = secret_dir / "codex-app-server.token"
-        current = path.read_text(encoding="utf-8").strip() if path.exists() else ""
-        if current != token:
-            path.write_text(token + "\n", encoding="utf-8")
-        with contextlib.suppress(OSError):
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        return str(path)
-
-    def codex_command(self) -> str:
-        base = self.root / "codex" / "current"
-        name = "codex.exe" if os.name == "nt" else "codex"
-        candidates = [
-            base / "codex" / "bin" / name,
-            base / "bin" / name,
-            base / name,
-        ]
-        return _first_executable(candidates)
 
     def tunnel_command(self) -> str:
         base = self.root / "tunnel-client" / "current"
@@ -90,44 +54,10 @@ class NativeRuntimeManager:
     def status(self) -> dict[str, Any]:
         return {
             "nativeDir": str(self.root),
-            "codexTarget": self.codex_target,
             "tunnelTarget": self.tunnel_target,
-            "codexCommand": self.codex_command(),
             "tunnelCommand": self.tunnel_command(),
-            "codexInstalled": bool(self.codex_command()),
             "tunnelInstalled": bool(self.tunnel_command()),
         }
-
-    def install_codex(
-        self,
-        *,
-        repository: str,
-        source_url: str = "",
-        archive_path: str = "",
-        github_token: str = "",
-    ) -> dict[str, Any]:
-        if archive_path:
-            archive = Path(archive_path).expanduser().resolve()
-            if not archive.is_file():
-                msg = f"Codex archive does not exist: {archive}"
-                raise NativeRuntimeError(msg)
-            _reject_wrong_target(archive.name, self.codex_target)
-        else:
-            url = source_url or self._latest_release_asset(repository, github_token)
-            archive = self._download(
-                url,
-                _download_name(url, f"codex-package-{self.codex_target}.tar.gz"),
-                github_token,
-            )
-            _reject_wrong_target(archive.name, self.codex_target)
-        destination = self.root / "codex" / "current"
-        self._install_archive(archive, destination)
-        command = self.codex_command()
-        if not command:
-            msg = "Codex package is missing codex/bin/codex for this platform"
-            raise NativeRuntimeError(msg)
-        _make_executable(Path(command))
-        return {**self.status(), "component": "codex", "source": archive.name}
 
     def install_tunnel_client(self, release: str) -> dict[str, Any]:
         manifest_url = TUNNEL_PUBLIC_URLS.format(release=release)
@@ -151,22 +81,6 @@ class NativeRuntimeManager:
             raise NativeRuntimeError(msg)
         _make_executable(Path(command))
         return {**self.status(), "component": "tunnel-client", "release": release}
-
-    def _latest_release_asset(self, repository: str, token: str) -> str:
-        if "/" not in repository:
-            msg = "Codex release repository must use owner/name form"
-            raise NativeRuntimeError(msg)
-        url = f"https://api.github.com/repos/{repository}/releases/latest"
-        data = json.loads(self._read_url(url, token).decode("utf-8"))
-        asset_name = f"codex-package-{self.codex_target}.tar.gz"
-        asset = next(
-            (item for item in data.get("assets", []) if item.get("name") == asset_name),
-            None,
-        )
-        if not asset or not asset.get("browser_download_url"):
-            msg = f"latest {repository} release does not contain {asset_name}"
-            raise NativeRuntimeError(msg)
-        return str(asset["browser_download_url"])
 
     def _download(self, url: str, filename: str, token: str = "") -> Path:
         if urlparse(url).scheme.lower() != "https":

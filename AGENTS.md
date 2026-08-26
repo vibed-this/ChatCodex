@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`backend/app/` contains the FastAPI gateway, MCP server, authentication, Codex App Server adapters, and tunnel managers. Tests live in `backend/tests/`: `test_contracts.py` covers protocol contracts, while `auth_http_integration.py` starts a real gateway. `frontend/src/` contains React widgets, the administration panel, bridge utilities, and shared controls. Widget entry points are in `frontend/widgets/`; builds go to `frontend/dist/`. Treat `native/` as downloaded runtimes and secrets, and `ref/` as reference material.
+`backend/app/` contains the FastAPI gateway, MCP server, authentication, local execution services, and tunnel managers. Tests live in `backend/tests/`: `test_contracts.py` covers protocol contracts, while `auth_http_integration.py` starts a real gateway. `frontend/src/` contains React widgets, the administration panel, bridge utilities, and shared controls. Widget entry points are in `frontend/widgets/`; builds go to `frontend/dist/`. Treat `native/` as downloaded runtimes and secrets, and `ref/` as reference material.
 
 ## Build, Test, and Development Commands
 
@@ -18,7 +18,7 @@
 
 ## Coding Style & Naming Conventions
 
-Use four spaces for Python and two for TypeScript/TSX. Python uses `snake_case` functions/modules, `PascalCase` classes, type hints, and short architectural docstrings. React components use `PascalCase`, hooks use `useXxx`, and widget entries use kebab case (for example, `start-codex.tsx`). Preserve double-quoted, semicolon-terminated TypeScript. No repository-wide formatter is configured; follow adjacent code.
+Use four spaces for Python and two for TypeScript/TSX. Python uses `snake_case` functions/modules, `PascalCase` classes, type hints, and short architectural docstrings. React components use `PascalCase`, hooks use `useXxx`, and widget entries use kebab case (for example, `workspace-setup.tsx`). Preserve double-quoted, semicolon-terminated TypeScript. No repository-wide formatter is configured; follow adjacent code.
 
 ## Testing Guidelines
 

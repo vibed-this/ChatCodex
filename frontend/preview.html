@@ -83,7 +83,7 @@ const variants = {
   "workspace-setup": [["default","new workspace"],["resume","existing workspace"],["linux","Linux path"]],
   "ask-user": [["one-choice","1 choice"],["one-text","1 text"],["three","3 mixed"],["ten","10 mixed"],["secret","secret"]],
   approval: [["command","command"],["file","file change"],["permissions","permissions"],["network","network"],["user-input","user input"],["elicitation","MCP elicitation"]],
-  diff: [["normal","normal diff"],["large","large diff"],["codex-patch","Codex patch"]],
+  diff: [["normal","normal diff"],["large","large diff"],["structured-patch","structured patch"]],
   chat: [["running","running"],["approval","waiting approval"],["complete","complete"],["failed","failed"]],
 };
 
@@ -180,7 +180,7 @@ function questionFixture(variant) {
 
 function approvalFixture(variant) {
   const base = {requestId:`demo-${variant}`,availableDecisions:["accept","decline","acceptForSession"]};
-  if (variant === "file") return {...base,kind:"fileChange",summary:"Codex 将修改前端组件",diff:makeDiff(3,8)};
+  if (variant === "file") return {...base,kind:"fileChange",summary:"本地执行服务将修改前端组件",diff:makeDiff(3,8)};
   if (variant === "permissions") return {...base,kind:"permissions",reason:"任务需要扩大本地访问范围。",permissions:{
     fileSystem:{read:["E:\\\\project"],write:["E:\\\\project\\\\dist"]},
     network:{hosts:["registry.npmjs.org"]},
@@ -194,7 +194,7 @@ function approvalFixture(variant) {
       note:{type:"string",title:"说明",description:"可选补充说明",maxLength:120},
     },
   }};
-  return {...base,kind:"commandExecution",summary:"Codex 想运行以下命令",reason:"命令会删除构建缓存并重新生成资源。",risk:"high",destructive:true,
+  return {...base,kind:"commandExecution",summary:"本地执行服务想运行以下命令",reason:"命令会删除构建缓存并重新生成资源。",risk:"high",destructive:true,
     command:["powershell","-NoProfile","-Command","Remove-Item -Recurse -Force .cache; npm run build"],cwd:"E:\\\\project"};
 }
 
@@ -221,7 +221,7 @@ function fixture(widget, variant) {
   if (widget === "ask-user") return {input:{questions:questionFixture(variant)},output:null};
   if (widget === "diff") {
     const diff = variant === "large" ? makeDiff(8,600)
-      : variant === "codex-patch"
+      : variant === "structured-patch"
         ? "*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old value\n+new value\n*** End Patch"
         : makeDiff(3,12);
     return {input:{diff},output:null};
@@ -264,7 +264,7 @@ function mockOpenAi(theme, displayMode, hostMode, view) {
           {name:"docs",path:`${args?.path || "E:\\\\project"}\\\\docs`,is_dir:true},
         ],
       };
-      if (name === "list_codex_sessions") return {sessions:[
+      if (name === "list_sessions") return {sessions:[
         {threadId:"thread-demo-01",preview:"修复认证回调",cwd:"E:\\\\project"},
         {threadId:"thread-demo-02",preview:"优化 Widget UI",cwd:"E:\\\\ChatCodex"},
       ]};

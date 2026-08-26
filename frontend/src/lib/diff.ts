@@ -68,8 +68,8 @@ export function parseDiff(diff: string): FileDiff[] {
   return files;
 }
 
-/** codex apply_patch 语法的 *** Add/Update/Delete File 解析(非标准 git diff)。 */
-export function parseCodexPatch(patch: string): FileDiff[] {
+/** 解析结构化补丁语法的 *** Add/Update/Delete File 格式。 */
+export function parseStructuredPatch(patch: string): FileDiff[] {
   const files: FileDiff[] = [];
   let cur: FileDiff | null = null;
   for (const raw of patch.split("\n")) {
@@ -95,7 +95,7 @@ export function parseCodexPatch(patch: string): FileDiff[] {
 /** 自动识别格式并解析。 */
 export function parseAnyDiff(text: string): FileDiff[] {
   if (text.includes("*** Begin Patch") || text.includes("*** Add File") || text.includes("*** Update File")) {
-    return parseCodexPatch(text);
+    return parseStructuredPatch(text);
   }
   return parseDiff(text);
 }
