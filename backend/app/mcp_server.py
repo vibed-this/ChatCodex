@@ -12,11 +12,9 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import widgets
 from .config import Settings
 from .execution import ExecutionError, ExecutionOrchestrator
 from .oauth import Authenticator
-from .tools import WIDGET_ASK, WIDGET_CHAT, WIDGET_DIFF
 
 
 def _transport_security(settings: Settings) -> TransportSecuritySettings:
@@ -54,20 +52,6 @@ def tool_security_schemes(settings: Settings) -> list[dict[str, Any]]:
     if settings.mcp_auth_mode in ("oauth", "both"):
         return [{"type": "oauth2", "scopes": ["codex"]}]
     return [{"type": "noauth"}]
-
-
-def _register_widget(mcp: FastMCP, settings: Settings, uri: str) -> None:
-    description = widgets.WIDGETS[uri][1]
-
-    @mcp.resource(uri, name=description, mime_type="text/html;profile=mcp-app", meta=widgets.resource_meta(description, settings.public_url))
-    def _read() -> str:
-        return widgets.read_resource(settings, uri)["text"]
-
-
-def update_widget_domains(mcp: FastMCP, public_url: str) -> None:
-    for uri, resource in mcp._resource_manager._resources.items():  # noqa: SLF001
-        description = widgets.WIDGETS.get(str(uri), ("", resource.name))[1]
-        resource.meta = widgets.resource_meta(description, public_url)
 
 
 def _tool_result(data: dict[str, Any], summary: str) -> mtypes.CallToolResult:
@@ -122,7 +106,7 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
         except Exception as exc:
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("write_file", description="Write UTF-8 text to any host path (full access).", meta={"ui": {"resourceUri": WIDGET_DIFF}, "openai/outputTemplate": WIDGET_DIFF, "openai/toolInvocation/invoking": "Writing file", "openai/toolInvocation/invoked": "File written"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False})
+    @mcp.tool("write_file", description="Write UTF-8 text to any host path (full access).", meta={"openai/toolInvocation/invoking": "Writing file", "openai/toolInvocation/invoked": "File written"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False})
     async def write_file(ctx: Context, path: str, content: str) -> dict[str, Any]:
         try:
             return await orch.write_file(path, content)
@@ -143,7 +127,7 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
         except Exception as exc:
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("exec_command", description="Execute any argv command on the host (full access, dangerFullAccess).", meta={"ui": {"resourceUri": WIDGET_CHAT}, "openai/outputTemplate": WIDGET_CHAT, "openai/toolInvocation/invoking": "Running command", "openai/toolInvocation/invoked": "Command finished"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
+    @mcp.tool("exec_command", description="Execute any argv command on the host (full access, dangerFullAccess).", meta={"openai/toolInvocation/invoking": "Running command", "openai/toolInvocation/invoked": "Command finished"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
     async def exec_command(ctx: Context, command: list[str], cwd: Optional[str] = None, timeoutMs: Optional[int] = None, requireEscalated: bool = False, justification: Optional[str] = None) -> dict[str, Any]:
         if timeoutMs is not None and (isinstance(timeoutMs, bool) or timeoutMs < 0):
             raise ToolError("timeoutMs must be a non-negative integer")
@@ -152,7 +136,7 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
         except Exception as exc:
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("apply_patch", description="Apply a Codex-format patch (full access).", meta={"ui": {"resourceUri": WIDGET_DIFF}, "openai/outputTemplate": WIDGET_DIFF, "openai/toolInvocation/invoking": "Applying patch", "openai/toolInvocation/invoked": "Patch applied"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
+    @mcp.tool("apply_patch", description="Apply a Codex-format patch (full access).", meta={"openai/toolInvocation/invoking": "Applying patch", "openai/toolInvocation/invoked": "Patch applied"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
     async def apply_patch(ctx: Context, patch: str) -> dict[str, Any]:
         try:
             return await orch.apply_patch(patch)
@@ -174,7 +158,7 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
             raise as_tool_error(exc) from exc
         return mtypes.CallToolResult(content=[mtypes.TextContent(type="text", text=f"Opened image: {data['path']}"), mtypes.ImageContent(type="image", data=data["dataBase64"], mimeType=data["mimeType"])], structuredContent={k: v for k, v in data.items() if k != "dataBase64"})
 
-    @mcp.tool("request_user_input", description="Prepare one to three non-secret questions for WebChat to ask.", meta={"ui": {"resourceUri": WIDGET_ASK}, "openai/outputTemplate": WIDGET_ASK}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False})
+    @mcp.tool("request_user_input", description="Prepare one to three non-secret questions for WebChat to ask.", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False})
     async def request_user_input(ctx: Context, questions: list[dict]) -> dict[str, Any]:
         if not 1 <= len(questions) <= 3:
             raise ToolError("questions must contain between one and three items")
@@ -190,7 +174,7 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
             normalized.append({"id": question_id, "header": str(question.get("header") or ""), "question": str(question.get("question") or question.get("header") or question_id), "options": [{"label": str(option.get("label") or option.get("value") or ""), "description": str(option.get("description") or "")} for option in (question.get("options") or []) if str(option.get("label") or option.get("value") or "")], "is_other": bool(question.get("is_other") or question.get("isOther")), "is_secret": False})
         return {"action": "ask_user", "questions": normalized}
 
-    @mcp.tool("browse_dir", description="Browse server directories.", meta={"ui": {"visibility": ["app"]}}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+    @mcp.tool("browse_dir", description="Browse server directories.", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
     async def browse_dir(path: Optional[str] = None) -> dict[str, Any]:
         return await orch.browse_dir(path or "")
 
@@ -224,9 +208,5 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
 
     mcp._chatcodex_orch = orch  # noqa: SLF001
     mcp._chatcodex_approval = approval  # noqa: SLF001
-    for uri in widgets.WIDGETS:
-        if uri == "ui://widget/workspace-setup.html":
-            continue
-        _register_widget(mcp, settings, uri)
     _normalize_tool_contracts(mcp, settings)
     return mcp

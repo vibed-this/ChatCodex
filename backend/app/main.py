@@ -20,7 +20,7 @@ from .config import Settings, load_settings
 from .db import Database
 from .events import EventBroker
 from .execution import ExecutionOrchestrator
-from .mcp_server import build_mcp, update_widget_domains
+from .mcp_server import build_mcp
 from .oauth import Authenticator, Principal, WebAuthenticator
 from .oauth import is_chatgpt_connector_callback
 from .native import NativeRuntimeManager, NativeRuntimeError
@@ -145,7 +145,6 @@ def _replace_runtime_public_url(public_url: str, *, https_required: bool) -> boo
     if auth.public_url == base:
         return True
     auth.set_public_url(base)
-    update_widget_domains(mcp, base)
     if mcp.settings.auth is not None:
         mcp.settings.auth = mcp.settings.auth.model_copy(update={"issuer_url": base, "resource_server_url": f"{base}/mcp"})
         _mcp_asgi.replace(mcp.streamable_http_app())
