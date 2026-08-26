@@ -96,17 +96,27 @@ class _Verifier(TokenVerifier):
         principal = self.auth.authenticate(f"Bearer {token}", "127.0.0.1")
         if not principal:
             return None
+        # 兼容旧 token：codex 已在 oauth._verify 归一为 tools，此处再做一次兜底
+        scopes = principal.scopes or ["tools"]
+        scopes = ["tools" if s == "codex" else s for s in scopes]
+        # 去重
+        seen: set[str] = set()
+        canon: list[str] = []
+        for s in scopes:
+            if s not in seen:
+                seen.add(s)
+                canon.append(s)
         return AccessToken(
             token=token,
             client_id=principal.client_id or principal.user_id,
-            scopes=principal.scopes or ["tools"],
+            scopes=canon or ["tools"],
             expires_at=None,
         )
 
 
 def tool_security_schemes(settings: Settings) -> list[dict[str, Any]]:
     if settings.mcp_auth_mode in ("oauth", "both"):
-        return [{"type": "oauth2", "scopes": ["tools"]}]
+        return [{"type": "oauth2", "scopes": ["tools", "codex"]}]
     return [{"type": "noauth"}]
 
 

@@ -33,6 +33,34 @@ MAX_OAUTH_CODES = 1024
 MAX_CLIENT_METADATA_BYTES = 32 * 1024
 MAX_REDIRECT_URIS = 10
 
+# codex 为 tools 的别名，兼容 ChatGPT Connector 固定请求 scope=codex
+_CANONICAL_SCOPE_ALIASES = {"codex": "tools"}
+_ALLOWED_SCOPES = {"tools", "codex"}
+
+
+def _canonical_scope(scope: str) -> str:
+    """将别名 codex 归一为 tools，并去重保持顺序。"""
+    parts = scope.split()
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in parts:
+        canon = _CANONICAL_SCOPE_ALIASES.get(part, part)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return " ".join(out)
+
+
+def _canonical_scopes_list(scopes: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for scope in scopes:
+        canon = _CANONICAL_SCOPE_ALIASES.get(scope, scope)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
 
 def _b64url(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
@@ -75,6 +103,7 @@ class TokenSigner:
     ) -> str:
         now = int(time.time())
         header = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+        canon_scopes = _canonical_scopes_list(scopes or ["tools"])
         payload = _b64url(
             json.dumps(
                 {
@@ -83,7 +112,7 @@ class TokenSigner:
                     "exp": now + (self.ttl if ttl is None else ttl),
                     "iss": self.issuer,
                     "aud": audience or self.audience,
-                    "scope": " ".join(scopes or ["tools"]),
+                    "scope": " ".join(canon_scopes),
                     "client_id": client_id,
                     "token_use": token_use,
                 },
@@ -141,7 +170,7 @@ class TokenSigner:
                 return None
             return Principal(
                 user_id=data.get("sub", "unknown"),
-                scopes=(data.get("scope", "").split()),
+                scopes=_canonical_scopes_list((data.get("scope", "").split())),
                 client_id=str(data.get("client_id") or ""),
                 audience=str(audience),
             )
@@ -222,10 +251,14 @@ class OAuthStore:
         if "scope" in meta and (
             not isinstance(meta.get("scope"), str)
             or not set(meta["scope"].split())
-            or not set(meta["scope"].split()).issubset({"tools"})
+            or not set(meta["scope"].split()).issubset(_ALLOWED_SCOPES)
         ):
             msg = "scope must contain only tools"
             raise ValueError(msg)
+        # 归一化注册的 scope，别名 codex -> tools
+        if "scope" in meta and isinstance(meta.get("scope"), str):
+            meta = dict(meta)
+            meta["scope"] = _canonical_scope(str(meta["scope"]))
         cid = secrets.token_hex(16)
         allowed = {
             k: meta[k]
@@ -288,7 +321,7 @@ class OAuthStore:
             "code_challenge": challenge,
             "code_challenge_method": method,
             "user_id": user_id,
-            "scope": scope,
+            "scope": _canonical_scope(scope),
             "issued_at": now,
             "exp": now + 600,
             "resource": resource,

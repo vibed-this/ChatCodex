@@ -17,8 +17,15 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
 from .native import NativeRuntimeError
-from .oauth import Principal, is_chatgpt_connector_callback
+from .oauth import (
+    Principal,
+    _canonical_scope,
+    _canonical_scopes_list,
+    is_chatgpt_connector_callback,
+)
 from .runtime import create_runtime
+
+_ALLOWED_SCOPES = {"tools", "codex"}
 
 runtime = None
 settings = Settings()
@@ -342,7 +349,7 @@ def _protected_resource_metadata() -> dict[str, Any]:
         "resource": _require(auth).resource,
         "authorization_servers": [_require(auth).public_url],
         "bearer_methods_supported": ["header"],
-        "scopes_supported": ["tools"],
+        "scopes_supported": ["tools", "codex"],
     }
 
 
@@ -355,7 +362,7 @@ def _authorization_server_metadata() -> dict[str, Any]:
         "registration_endpoint": f"{base}/oauth/register",
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "response_types_supported": ["code"],
-        "scopes_supported": ["tools"],
+        "scopes_supported": ["tools", "codex"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
     }
@@ -653,7 +660,7 @@ async def oauth_token(request: Request) -> Any:
             raise HTTPException(400, "invalid_client")
         return _oauth_token_response(
             rec["user_id"],
-            rec.get("scope", "tools").split(),
+            _canonical_scopes_list(rec.get("scope", "tools").split()),
             rec.get("resource", ""),
             rec.get("client_id", ""),
             client,
@@ -676,11 +683,13 @@ async def oauth_token(request: Request) -> Any:
             resource
         ):
             raise HTTPException(400, "invalid_target")
-        scopes = principal.scopes
+        scopes = _canonical_scopes_list(principal.scopes)
         if "scope" in form:
-            requested_scopes = str(form.get("scope") or "").split()
+            requested_scopes = _canonical_scopes_list(
+                str(form.get("scope") or "").split()
+            )
             if not requested_scopes or not set(requested_scopes).issubset(
-                set(principal.scopes)
+                set(scopes)
             ):
                 raise HTTPException(400, "invalid_scope")
             scopes = requested_scopes
@@ -697,18 +706,19 @@ def _oauth_token_response(
     client_id: str,
     client: dict[str, Any],
 ) -> JSONResponse:
+    canon_scopes = _canonical_scopes_list(scopes)
     payload = {
         "access_token": _require(auth).signer.issue(
-            user_id, scopes, audience=resource, client_id=client_id
+            user_id, canon_scopes, audience=resource, client_id=client_id
         ),
         "token_type": "Bearer",
         "expires_in": settings.oauth_token_ttl,
-        "scope": " ".join(scopes),
+        "scope": " ".join(canon_scopes),
     }
     if "refresh_token" in (client.get("grant_types") or []):
         payload["refresh_token"] = _require(auth).signer.issue(
             user_id,
-            scopes,
+            canon_scopes,
             audience=resource,
             client_id=client_id,
             token_use="refresh",
@@ -745,7 +755,7 @@ def _validate_authorization(
     if method != "S256" or not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):
         raise HTTPException(400, "invalid_code_challenge")
     scopes = set(scope.split())
-    if not scopes or not scopes.issubset({"tools"}):
+    if not scopes or not scopes.issubset(_ALLOWED_SCOPES):
         raise HTTPException(400, "invalid_scope")
     if not _require(auth).accepts_resource(resource):
         raise HTTPException(400, "invalid_target")
