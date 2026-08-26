@@ -33,7 +33,7 @@ export function SegmentedControl<T extends string>({
           data-active={value === option.value}
           disabled={option.disabled}
           key={option.value}
-          onClick={() => onChange(option.value)}
+          onClick={() => { onChange(option.value); }}
         >
           {option.label}
         </button>

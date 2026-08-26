@@ -1,12 +1,18 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """Authenticated WebChat event fan-out with bounded replay."""
+
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict, deque
-from dataclasses import dataclass
+import contextlib
 import json
 import time
-from typing import Any, AsyncIterator, Optional
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 @dataclass(frozen=True)
@@ -33,17 +39,19 @@ class GatewayEvent:
 class EventBroker:
     """One-way event stream for approvals and standalone operations."""
 
-    def __init__(self, replay_limit: int = 256):
+    def __init__(self, replay_limit: int = 256) -> None:
         self.replay_limit = max(16, replay_limit)
         self._next_id = 0
         self._history: dict[str, deque[GatewayEvent]] = defaultdict(
             lambda: deque(maxlen=self.replay_limit)
         )
-        self._subscribers: dict[str, set[asyncio.Queue[GatewayEvent]]] = defaultdict(set)
+        self._subscribers: dict[str, set[asyncio.Queue[GatewayEvent]]] = defaultdict(
+            set
+        )
         self._lock = asyncio.Lock()
 
     async def publish(
-            self, event: str, conversation_id: str, data: Optional[dict] = None
+        self, event: str, conversation_id: str, data: dict[str, Any] | None = None
     ) -> GatewayEvent:
         conversation_id = str(conversation_id or "")
         async with self._lock:
@@ -63,24 +71,21 @@ class EventBroker:
             try:
                 queue.put_nowait(item)
             except asyncio.QueueFull:
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty):
                     queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-                try:
+                with contextlib.suppress(asyncio.QueueFull):
                     queue.put_nowait(item)
-                except asyncio.QueueFull:
-                    pass
         return item
 
     async def subscribe(
-            self, conversation_id: str, after_id: int = 0
+        self, conversation_id: str, after_id: int = 0
     ) -> AsyncIterator[GatewayEvent]:
         conversation_id = str(conversation_id or "")
         queue: asyncio.Queue[GatewayEvent] = asyncio.Queue(maxsize=64)
         async with self._lock:
             replay = [
-                item for item in self._history.get(conversation_id, ())
+                item
+                for item in self._history.get(conversation_id, ())
                 if item.event_id > after_id
             ]
             self._subscribers[conversation_id].add(queue)
@@ -89,7 +94,7 @@ class EventBroker:
                 yield item
             while True:
                 yield await asyncio.wait_for(queue.get(), timeout=20.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Let the endpoint send a heartbeat and create a fresh wait.
             return
         finally:

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """公网入口与 MCP Secure Tunnel 的进程管理。
 
 三种底层传输:
@@ -8,55 +9,75 @@
 direct/cloudflared 只能作为全局公网入口；chatgpt 只能由独立 MCP
 Tunnel API 启动。底层 manager 仍统一负责线程隔离、守护与状态聚合。
 """
+
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 import concurrent.futures
+import contextlib
 import os
 import re
 import shutil
 import tempfile
 import threading
-from typing import Any, Callable, Optional
 import urllib.request
+from collections import deque
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from ..config import Settings
-from ..native import NativeRuntimeManager
-from ..process_guard import attach_windows_kill_job, close_windows_kill_job
+from app.native import NativeRuntimeManager
+from app.process_guard import attach_windows_kill_job, close_windows_kill_job
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from app.config import Settings
 
 # trycloudflare 输出形如: https://xxxx-yyyy.trycloudflare.com
-_TRY_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
+_TRY_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.IGNORECASE)
 
 
-class TunnelStatus(dict):
-    def __init__(self, kind: str, running: bool, url: str = "", detail: str = "",
-                 pid: int = 0, **extra):
-        super().__init__(kind=kind, running=running, url=url, detail=detail, pid=pid,
-                         **extra)
+class TunnelStatus(dict[str, Any]):
+    def __init__(
+        self,
+        kind: str,
+        running: bool,
+        url: str = "",
+        detail: str = "",
+        pid: int = 0,
+        **extra: Any,
+    ) -> None:
+        super().__init__(
+            kind=kind, running=running, url=url, detail=detail, pid=pid, **extra
+        )
 
 
 class BaseTunnel:
     kind = "base"
 
-    def __init__(self, settings: Settings,
-                 on_public_url: Optional[Callable[[str], None]] = None):
+    def __init__(
+        self, settings: Settings, on_public_url: Callable[[str], None] | None = None
+    ) -> None:
         self.settings = settings
         self.on_public_url = on_public_url
-        self.proc: Optional[asyncio.subprocess.Process] = None
+        self.proc: asyncio.subprocess.Process | None = None
         self.url = ""
         self.detail = ""
         self.logs: deque[str] = deque(maxlen=100)
-        self.exit_code: Optional[int] = None
-        self._job_handle: Optional[int] = None
+        self.exit_code: int | None = None
+        self._job_handle: int | None = None
 
     def running(self) -> bool:
         return self.proc is not None and self.proc.returncode is None
 
     def status(self) -> TunnelStatus:
-        return TunnelStatus(self.kind, self.running(), self.url, self.detail,
-                            self.proc.pid if self.proc else 0)
+        return TunnelStatus(
+            self.kind,
+            self.running(),
+            self.url,
+            self.detail,
+            self.proc.pid if self.proc else 0,
+        )
 
     async def start(self) -> TunnelStatus:  # pragma: no cover
         raise NotImplementedError
@@ -68,21 +89,16 @@ class BaseTunnel:
                 await asyncio.wait_for(self.proc.wait(), 5)
             except Exception:
                 if self.proc.returncode is None:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         self.proc.kill()
-                    except ProcessLookupError:
-                        pass
-                    try:
+                    with contextlib.suppress(Exception):
                         await asyncio.wait_for(self.proc.wait(), 5)
-                    except Exception:
-                        pass
         self._close_windows_kill_job()
         self.proc = None
 
     def _attach_windows_kill_job(self) -> None:
         if self.proc is not None:
-            self._job_handle = attach_windows_kill_job(
-                self.proc.pid, self.logs.append)
+            self._job_handle = attach_windows_kill_job(self.proc.pid, self.logs.append)
 
     def _close_windows_kill_job(self) -> None:
         close_windows_kill_job(self._job_handle)
@@ -109,14 +125,14 @@ class BaseTunnel:
 class IsolatedTunnel:
     """Own one tunnel runtime on a dedicated thread and asyncio event loop."""
 
-    def __init__(self, tunnel: BaseTunnel, instance_id: str):
+    def __init__(self, tunnel: BaseTunnel, instance_id: str) -> None:
         self.tunnel = tunnel
         self.instance_id = instance_id
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
         self._ready = threading.Event()
-        self._start_error: Optional[BaseException] = None
-        self._caller_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._start_error: BaseException | None = None
+        self._caller_loop: asyncio.AbstractEventLoop | None = None
         self._on_public_url = tunnel.on_public_url
         if self._on_public_url is not None:
             tunnel.on_public_url = self._publish_public_url_on_caller
@@ -155,17 +171,15 @@ class IsolatedTunnel:
             self._start_error = exc
             self._ready.set()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 loop.run_until_complete(self.tunnel.stop())
-            except Exception:
-                pass
             loop.close()
 
     async def start(self) -> TunnelStatus:
         self._caller_loop = asyncio.get_running_loop()
         self._thread = threading.Thread(
-            target=self._run, daemon=True,
-            name=f"chatgpt-tunnel-{self.instance_id}")
+            target=self._run, daemon=True, name=f"chatgpt-tunnel-{self.instance_id}"
+        )
         self._thread.start()
         while not self._ready.is_set():
             await asyncio.sleep(0.05)
@@ -190,20 +204,24 @@ class IsolatedTunnel:
         self._caller_loop = None
 
     def status(self) -> TunnelStatus:
-        return TunnelStatus(**{
-            **self.tunnel.status(),
-            "instanceId": self.instance_id,
-            "threadIsolated": True,
-            "threadName": self._thread.name if self._thread else "",
-        })
+        return TunnelStatus(
+            **{
+                **self.tunnel.status(),
+                "instanceId": self.instance_id,
+                "threadIsolated": True,
+                "threadName": self._thread.name if self._thread else "",
+            }
+        )
 
 
 class DirectTunnel(BaseTunnel):
     """直接公网暴露:无需进程,公网地址即 public_url。"""
+
     kind = "direct"
 
-    def __init__(self, settings: Settings,
-                 on_public_url: Optional[Callable[[str], None]] = None):
+    def __init__(
+        self, settings: Settings, on_public_url: Callable[[str], None] | None = None
+    ) -> None:
         super().__init__(settings, on_public_url=on_public_url)
         self._up = False
 
@@ -223,15 +241,21 @@ class DirectTunnel(BaseTunnel):
 
 class CloudflaredTunnel(BaseTunnel):
     """cloudflared:named+JWT(生产)或 trycloudflare(联调)。"""
+
     kind = "cloudflared"
 
-    def __init__(self, settings: Settings, mode: str = "try", token: str = "",
-                 on_public_url: Optional[Callable[[str], None]] = None):
+    def __init__(
+        self,
+        settings: Settings,
+        mode: str = "try",
+        token: str = "",
+        on_public_url: Callable[[str], None] | None = None,
+    ) -> None:
         super().__init__(settings, on_public_url=on_public_url)
-        self.mode = mode            # "try" | "named"
+        self.mode = mode  # "try" | "named"
         self.token = token
-        self._url_ready: Optional[asyncio.Event] = None
-        self._reader_task: Optional[asyncio.Task] = None
+        self._url_ready: asyncio.Event | None = None
+        self._reader_task: asyncio.Task[Any] | None = None
 
     async def start(self) -> TunnelStatus:
         exe = shutil.which("cloudflared")
@@ -250,14 +274,19 @@ class CloudflaredTunnel(BaseTunnel):
             # named tunnel 的公网域名在 Cloudflare 侧配置;此处用 public_url 作为展示
             self.url = self.settings.public_url
             self._publish_public_url()
-            self.detail = "named tunnel (token); hostname configured in Cloudflare dashboard"
+            self.detail = (
+                "named tunnel (token); hostname configured in Cloudflare dashboard"
+            )
         else:
             argv = [exe, "tunnel", "--url", self._target(), "--no-autoupdate"]
             child_env = None
             self.detail = "trycloudflare (ephemeral)"
         self.proc = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            env=child_env)
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=child_env,
+        )
         self._attach_windows_kill_job()
         if self.mode == "try":
             self._url_ready = asyncio.Event()
@@ -309,8 +338,12 @@ def _chatgpt_tunnel_oauth_warning(settings: Settings) -> str:
         parsed = urlsplit(issuer)
     except ValueError:
         parsed = None
-    if (not parsed or parsed.scheme != "https" or not parsed.hostname or
-            parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}):
+    if (
+        not parsed
+        or parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}
+    ):
         return (
             "OAuth through Secure MCP Tunnel requires authorization_servers[0] "
             "to be a publicly reachable HTTPS issuer. Configure the Gateway's "
@@ -322,10 +355,16 @@ def _chatgpt_tunnel_oauth_warning(settings: Settings) -> str:
 
 class ChatGptTunnel(BaseTunnel):
     """OpenAI 官方 tunnel-client(控制面长轮询)。"""
+
     kind = "chatgpt"
 
-    def __init__(self, settings: Settings, tunnel_id: str = "", api_key: str = "",
-                 client_bin: str = "tunnel-client"):
+    def __init__(
+        self,
+        settings: Settings,
+        tunnel_id: str = "",
+        api_key: str = "",
+        client_bin: str = "tunnel-client",
+    ) -> None:
         super().__init__(settings)
         self.tunnel_id = tunnel_id
         self.api_key = api_key
@@ -334,13 +373,16 @@ class ChatGptTunnel(BaseTunnel):
         self.healthy = False
         self.ready = False
         self._health_file = ""
-        self._reader_task: Optional[asyncio.Task] = None
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._reader_task: asyncio.Task[Any] | None = None
+        self._monitor_task: asyncio.Task[Any] | None = None
 
     def status(self) -> TunnelStatus:
         oauth_warning = _chatgpt_tunnel_oauth_warning(self.settings)
         return TunnelStatus(
-            self.kind, self.running(), self.url, self.detail,
+            self.kind,
+            self.running(),
+            self.url,
+            self.detail,
             self.proc.pid if self.proc else 0,
             tunnelId=self.tunnel_id,
             healthUrl=self.health_url,
@@ -354,7 +396,7 @@ class ChatGptTunnel(BaseTunnel):
             oauthWarning=oauth_warning,
         )
 
-    def _resolve_executable(self) -> Optional[str]:
+    def _resolve_executable(self) -> str | None:
         if os.path.isfile(self.client_bin):
             return os.path.abspath(self.client_bin)
         return shutil.which(self.client_bin)
@@ -362,8 +404,10 @@ class ChatGptTunnel(BaseTunnel):
     async def start(self) -> TunnelStatus:
         exe = self._resolve_executable()
         if not exe:
-            self.detail = ("tunnel-client not found; install/build it or set "
-                           "CHATCODEX_TUNNEL_CLIENT to the executable path")
+            self.detail = (
+                "tunnel-client not found; install/build it or set "
+                "CHATCODEX_TUNNEL_CLIENT to the executable path"
+            )
             return self.status()
         if not (self.tunnel_id and self.api_key):
             self.detail = "chatgpt tunnel requires CONTROL_PLANE_TUNNEL_ID + CONTROL_PLANE_API_KEY"
@@ -373,32 +417,50 @@ class ChatGptTunnel(BaseTunnel):
             self.detail = oauth_warning
             return self.status()
         # 对齐 tunnel-client 真实 CLI(ref/tunnel-client/docs/configuration.md)
-        fd, self._health_file = tempfile.mkstemp(prefix="chatcodex-tunnel-health-", suffix=".url")
+        fd, self._health_file = tempfile.mkstemp(
+            prefix="chatcodex-tunnel-health-", suffix=".url"
+        )
         os.close(fd)
         argv = [
-            exe, "run",
-            "--control-plane.tunnel-id", self.tunnel_id,
-            "--control-plane.api-key", "env:CONTROL_PLANE_API_KEY",
+            exe,
+            "run",
+            "--control-plane.tunnel-id",
+            self.tunnel_id,
+            "--control-plane.api-key",
+            "env:CONTROL_PLANE_API_KEY",
             # FastMCP is mounted at /mcp/; use the canonical trailing-slash URL
             # so the startup POST is not redirected before authentication.
-            "--mcp.server-url", f"{self._target()}/mcp/",
-            "--health.listen-addr", "127.0.0.1:0",
-            "--health.url-file", self._health_file,
+            "--mcp.server-url",
+            f"{self._target()}/mcp/",
+            "--health.listen-addr",
+            "127.0.0.1:0",
+            "--health.url-file",
+            self._health_file,
         ]
-        merged = {**os.environ,
-                  "CONTROL_PLANE_API_KEY": self.api_key,
-                  "CONTROL_PLANE_TUNNEL_ID": self.tunnel_id}
-        if (self.settings.mcp_auth_mode in ("token", "both") and
-                self.settings.mcp_access_token):
+        merged = {
+            **os.environ,
+            "CONTROL_PLANE_API_KEY": self.api_key,
+            "CONTROL_PLANE_TUNNEL_ID": self.tunnel_id,
+        }
+        if (
+            self.settings.mcp_auth_mode in ("token", "both")
+            and self.settings.mcp_access_token
+        ):
             # Authenticate the private tunnel-client -> MCP hop without putting
             # the secret in argv or the public ChatGPT connector config.
             merged["CHATCODEX_MCP_AUTH"] = f"Bearer {self.settings.mcp_access_token}"
             argv += [
-                "--mcp.extra-headers", "Authorization: env:CHATCODEX_MCP_AUTH",
-                "--mcp.discovery-extra-headers", "Authorization: env:CHATCODEX_MCP_AUTH",
+                "--mcp.extra-headers",
+                "Authorization: env:CHATCODEX_MCP_AUTH",
+                "--mcp.discovery-extra-headers",
+                "Authorization: env:CHATCODEX_MCP_AUTH",
             ]
         self.proc = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=merged)
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=merged,
+        )
         self._attach_windows_kill_job()
         self.url = f"tunnel:{self.tunnel_id}"
         self.detail = "starting OpenAI Secure MCP Tunnel"
@@ -423,10 +485,8 @@ class ChatGptTunnel(BaseTunnel):
         self._reader_task = None
         self._monitor_task = None
         if self._health_file:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(self._health_file)
-            except OSError:
-                pass
         self.health_url = ""
         self.healthy = False
         self.ready = False
@@ -446,7 +506,8 @@ class ChatGptTunnel(BaseTunnel):
                 return
             try:
                 value = await asyncio.to_thread(
-                    lambda: open(self._health_file, "r", encoding="utf-8").read().strip())
+                    lambda: open(self._health_file, encoding="utf-8").read().strip()
+                )
                 if value and self._valid_health_url(value):
                     self.health_url = value.rstrip("/")
                     return
@@ -470,7 +531,9 @@ class ChatGptTunnel(BaseTunnel):
     async def _probe(self) -> None:
         if not self.health_url:
             return
-        self.healthy = await asyncio.to_thread(self._http_ok, f"{self.health_url}/healthz")
+        self.healthy = await asyncio.to_thread(
+            self._http_ok, f"{self.health_url}/healthz"
+        )
         self.ready = await asyncio.to_thread(self._http_ok, f"{self.health_url}/readyz")
 
     @staticmethod
@@ -479,7 +542,7 @@ class ChatGptTunnel(BaseTunnel):
             return False
         try:
             with urllib.request.urlopen(url, timeout=1.5) as response:  # nosec B310
-                return 200 <= response.status < 300
+                return bool(200 <= response.status < 300)
         except Exception:
             return False
 
@@ -504,54 +567,63 @@ class TunnelManager:
 
     RESTART_BACKOFF = [2, 5, 15, 60]
 
-    def __init__(self, settings: Settings, native: Optional[NativeRuntimeManager] = None,
-                 on_public_url: Optional[Callable[[str], None]] = None):
+    def __init__(
+        self,
+        settings: Settings,
+        native: NativeRuntimeManager | None = None,
+        on_public_url: Callable[[str], None] | None = None,
+    ) -> None:
         self.settings = settings
         self.native = native or NativeRuntimeManager(settings.native_dir)
         self.on_public_url = on_public_url
         self.instances: dict[str, IsolatedTunnel] = {}
         self._specs: dict[str, tuple[str, dict[str, Any]]] = {}
-        self._watchdogs: dict[str, asyncio.Task] = {}
+        self._watchdogs: dict[str, asyncio.Task[Any]] = {}
         self._restart_attempts: dict[str, int] = {}
         self._unhealthy_counts: dict[str, int] = {}
         self._last_errors: dict[str, str] = {}
         self._lifecycle_lock = asyncio.Lock()
 
-    def _build(self, kind: str, **kw) -> BaseTunnel:
+    def _build(self, kind: str, **kw: Any) -> BaseTunnel:
         if kind == "cloudflared":
             return CloudflaredTunnel(
-                self.settings, mode=kw.get("mode", "try"),
-                token=kw.get("token", ""), on_public_url=self.on_public_url)
+                self.settings,
+                mode=kw.get("mode", "try"),
+                token=kw.get("token", ""),
+                on_public_url=self.on_public_url,
+            )
         if kind == "chatgpt":
-            return ChatGptTunnel(self.settings,
-                                 tunnel_id=(kw.get("tunnel_id") or
-                                            self.settings.chatgpt_tunnel_id),
-                                 api_key=(kw.get("api_key") or
-                                          self.settings.chatgpt_api_key),
-                                 client_bin=kw.get("client_bin") or
-                                            self.settings.tunnel_client_command)
+            return ChatGptTunnel(
+                self.settings,
+                tunnel_id=(kw.get("tunnel_id") or self.settings.chatgpt_tunnel_id),
+                api_key=(kw.get("api_key") or self.settings.chatgpt_api_key),
+                client_bin=kw.get("client_bin") or self.settings.tunnel_client_command,
+            )
         return DirectTunnel(self.settings, on_public_url=self.on_public_url)
 
-    async def start(self, kind: str, **kw) -> TunnelStatus:
+    async def start(self, kind: str, **kw: Any) -> TunnelStatus:
         async with self._lifecycle_lock:
             return await self._start_unlocked(kind, **kw)
 
-    async def _start_unlocked(self, kind: str, **kw) -> TunnelStatus:
+    async def _start_unlocked(self, kind: str, **kw: Any) -> TunnelStatus:
         instance_id = str(kw.pop("instance_id", "default") or "default")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", instance_id):
-            raise ValueError("tunnel instance_id must be 1-64 safe identifier characters")
+            msg = "tunnel instance_id must be 1-64 safe identifier characters"
+            raise ValueError(msg)
         await self._stop_unlocked(instance_id)
         if kind == "chatgpt":
             kw["client_bin"] = await self._resolve_tunnel_client(
-                kw.get("client_bin", ""))
+                kw.get("client_bin", "")
+            )
         tunnel = self._build(kind, **kw)
         if kind != "chatgpt" and self.settings.mcp_auth_mode == "noauth":
             tunnel.detail = (
                 "refusing public/direct tunnel while MCP_AUTH_MODE=noauth; "
-                "use the authenticated ChatGPT tunnel or enable token/OAuth")
-            return TunnelStatus(**{
-                **tunnel.status(), "instanceId": instance_id,
-                "threadIsolated": True})
+                "use the authenticated ChatGPT tunnel or enable token/OAuth"
+            )
+            return TunnelStatus(
+                **{**tunnel.status(), "instanceId": instance_id, "threadIsolated": True}
+            )
         isolated = IsolatedTunnel(tunnel, instance_id)
         self.instances[instance_id] = isolated
         self._specs[instance_id] = (kind, dict(kw))
@@ -560,9 +632,12 @@ class TunnelManager:
         result = await isolated.start()
         if result.get("running"):
             self._watchdogs[instance_id] = asyncio.create_task(
-                self._watchdog(instance_id))
+                self._watchdog(instance_id)
+            )
         else:
-            self._last_errors[instance_id] = str(result.get("detail") or "tunnel did not start")[:300]
+            self._last_errors[instance_id] = str(
+                result.get("detail") or "tunnel did not start"
+            )[:300]
         return self._with_manager_state(instance_id, result)
 
     async def _resolve_tunnel_client(self, configured: str) -> str:
@@ -576,9 +651,9 @@ class TunnelManager:
         if installed:
             return installed
         result = await asyncio.to_thread(
-            self.native.install_tunnel_client,
-            self.settings.tunnel_client_release)
-        return result["tunnelCommand"]
+            self.native.install_tunnel_client, self.settings.tunnel_client_release
+        )
+        return str(result["tunnelCommand"])
 
     async def _watchdog(self, instance_id: str) -> None:
         try:
@@ -619,7 +694,8 @@ class TunnelManager:
                     try:
                         await isolated.stop()
                         replacement = IsolatedTunnel(
-                            self._build(kind, **spec), instance_id)
+                            self._build(kind, **spec), instance_id
+                        )
                         self.instances[instance_id] = replacement
                         await replacement.start()
                         self._last_errors[instance_id] = ""
@@ -629,11 +705,11 @@ class TunnelManager:
         except asyncio.CancelledError:
             return
 
-    async def stop(self, instance_id: Optional[str] = None) -> None:
+    async def stop(self, instance_id: str | None = None) -> None:
         async with self._lifecycle_lock:
             await self._stop_unlocked(instance_id)
 
-    async def _stop_unlocked(self, instance_id: Optional[str] = None) -> None:
+    async def _stop_unlocked(self, instance_id: str | None = None) -> None:
         ids = [instance_id] if instance_id else list(self.instances)
         for key in ids:
             task = self._watchdogs.pop(key, None)
@@ -646,27 +722,41 @@ class TunnelManager:
             self._restart_attempts.pop(key, None)
             self._unhealthy_counts.pop(key, None)
 
-    def _with_manager_state(self, instance_id: str, status: dict) -> TunnelStatus:
-        return TunnelStatus(**{
-            **status,
-            "autoRestart": self.settings.tunnel_auto_restart,
-            "restartAttempts": self._restart_attempts.get(instance_id, 0),
-            "consecutiveFailures": self._unhealthy_counts.get(instance_id, 0),
-            "lastError": self._last_errors.get(instance_id, ""),
-        })
+    def _with_manager_state(
+        self, instance_id: str, status: dict[str, Any]
+    ) -> TunnelStatus:
+        return TunnelStatus(
+            **{
+                **status,
+                "autoRestart": self.settings.tunnel_auto_restart,
+                "restartAttempts": self._restart_attempts.get(instance_id, 0),
+                "consecutiveFailures": self._unhealthy_counts.get(instance_id, 0),
+                "lastError": self._last_errors.get(instance_id, ""),
+            }
+        )
 
-    def status(self, instance_id: Optional[str] = None) -> TunnelStatus:
+    def status(self, instance_id: str | None = None) -> TunnelStatus:
         statuses = [
             dict(self._with_manager_state(key, isolated.status()))
             for key, isolated in sorted(self.instances.items())
         ]
-        selected = (next(
-            (item for item in statuses if item.get("instanceId") == instance_id),
-            None) if instance_id else (statuses[0] if statuses else None))
+        selected = (
+            next(
+                (item for item in statuses if item.get("instanceId") == instance_id),
+                None,
+            )
+            if instance_id
+            else (statuses[0] if statuses else None)
+        )
         if selected:
             return TunnelStatus(**{**selected, "instances": statuses})
         return TunnelStatus(
-            "none", False,
-            detail=(f"tunnel instance {instance_id!r} is not running"
-                    if instance_id else "no tunnel started"),
-            instances=statuses)
+            "none",
+            False,
+            detail=(
+                f"tunnel instance {instance_id!r} is not running"
+                if instance_id
+                else "no tunnel started"
+            ),
+            instances=statuses,
+        )

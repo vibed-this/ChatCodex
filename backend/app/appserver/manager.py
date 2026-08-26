@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """AppServerManager:codex app-server 的统一生命周期管理(Windows 可用)。
 
 借鉴 codex app-server-daemon 的思想(单例/生命周期/版本上报),但 daemon 是
@@ -9,23 +10,28 @@ Unix-only,Windows 不支持进程管理。本管理器面向 Gateway 内嵌场�
 - 传输统一:当前用 ws://(Windows 上 stdio 在 uvicorn 下不稳定),接口与
   IsolatedAppServer 一致(协程 + 回调注册 + status)
 """
+
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+import contextlib
 import ipaddress
 import os
 import secrets
 import shutil
 import socket
 import time
-from typing import Optional
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from ..config import Settings
-from ..native import NativeRuntimeManager
+from app.native import NativeRuntimeManager
+
 from .isolated import IsolatedAppServer
 from .ws_client import WsAppServerClient
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 # 健康探活间隔(秒)与连续失败阈值
 PING_INTERVAL = 15.0
@@ -48,15 +54,20 @@ def _is_loopback_host(hostname: str) -> bool:
 class AppServerManager:
     """单例管理一个 codex app-server(ws),带健康探活与自动看护。"""
 
-    def __init__(self, settings: Settings, port: int = 8765, auto_restart: bool = True,
-                 native: Optional[NativeRuntimeManager] = None):
+    def __init__(
+        self,
+        settings: Settings,
+        port: int = 8765,
+        auto_restart: bool = True,
+        native: NativeRuntimeManager | None = None,
+    ) -> None:
         self.settings = settings
         self.native = native or NativeRuntimeManager(settings.native_dir)
         self.port = port
         self.configured_port = port
         self.auto_restart = auto_restart
-        self._server: Optional[IsolatedAppServer] = None
-        self._watchdog_task: Optional[asyncio.Task] = None
+        self._server: IsolatedAppServer | None = None
+        self._watchdog_task: asyncio.Task[Any] | None = None
         self._started = False
         self._healthy = False
         self._consecutive_failures = 0
@@ -70,17 +81,17 @@ class AppServerManager:
         self._lifecycle_lock = asyncio.Lock()
 
     # ---- 回调注册(透传给底层,重启后重挂) ----
-    def on_server_request(self, handler) -> None:
+    def on_server_request(self, handler: Any) -> None:
         self._on_server_request = handler
         if self._server:
             self._server.on_server_request(handler)
 
-    def on_notification(self, handler) -> None:
+    def on_notification(self, handler: Any) -> None:
         self._on_notification = handler
         if self._server:
             self._server.on_notification(handler)
 
-    def on_reset(self, handler) -> None:
+    def on_reset(self, handler: Any) -> None:
         """Run a synchronous hook before each fresh app-server instance."""
         self._on_reset = handler
 
@@ -111,12 +122,18 @@ class AppServerManager:
         if mode == "external":
             endpoint = self.settings.codex_external_ws_url.strip()
             parsed = urlsplit(endpoint)
-            if (parsed.scheme not in {"ws", "wss"} or not parsed.hostname
-                    or parsed.username or parsed.password or parsed.fragment):
-                raise ValueError("external Codex App Server URL must use ws:// or wss://")
+            if (
+                parsed.scheme not in {"ws", "wss"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.fragment
+            ):
+                msg = "external Codex App Server URL must use ws:// or wss://"
+                raise ValueError(msg)
             if parsed.scheme == "ws" and not _is_loopback_host(parsed.hostname):
-                raise ValueError(
-                    "external Codex App Server must use wss:// outside loopback")
+                msg = "external Codex App Server must use wss:// outside loopback"
+                raise ValueError(msg)
             client = WsAppServerClient(
                 self.settings,
                 endpoint=endpoint,
@@ -135,12 +152,14 @@ class AppServerManager:
                 )
                 command = result.get("codexCommand", "")
             if not command:
-                raise RuntimeError("no internal Codex runtime is available")
-            internal_key = (self.settings.codex_internal_ws_key or
-                            secrets.token_urlsafe(48))
+                msg = "no internal Codex runtime is available"
+                raise RuntimeError(msg)
+            internal_key = self.settings.codex_internal_ws_key or secrets.token_urlsafe(
+                48
+            )
             self.settings = replace(
-                self.settings, codex_command=command,
-                codex_internal_ws_key=internal_key)
+                self.settings, codex_command=command, codex_internal_ws_key=internal_key
+            )
             token_file = self.native.internal_token_file(internal_key)
             client = WsAppServerClient(
                 self.settings,
@@ -151,7 +170,8 @@ class AppServerManager:
                 spawn=True,
             )
         else:
-            raise ValueError("codex_app_mode must be internal or external")
+            msg = "codex_app_mode must be internal or external"
+            raise ValueError(msg)
         server = IsolatedAppServer(self.settings, client)
         self._server = server
         if self._on_server_request:
@@ -171,10 +191,8 @@ class AppServerManager:
             # Codex reads the capability token once at startup and stores only
             # its SHA-256 digest. Do not retain the bearer credential on disk.
             if token_file:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(token_file)
-                except OSError:
-                    pass
         self._healthy = True
         self._consecutive_failures = 0
         self._last_error = ""
@@ -237,7 +255,7 @@ class AppServerManager:
             self._server = None
         self._healthy = False
 
-    async def restart(self) -> dict:
+    async def restart(self) -> dict[str, Any]:
         async with self._lifecycle_lock:
             await self._stop_unlocked()
             await self._start_unlocked()
@@ -295,7 +313,7 @@ class AppServerManager:
                 self._healthy = False
 
     # ---- 状态 ----
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         base = self._server.status() if self._server else {}
         return {
             **base,
@@ -310,24 +328,35 @@ class AppServerManager:
             "portFallback": self.port != self.configured_port,
             "lastError": self._last_error,
             "instanceId": f"appserver-{self._instance_generation}",
-            "managerUptimeSec": int(time.time() - self._started_at) if self._started_at else 0,
+            "managerUptimeSec": int(time.time() - self._started_at)
+            if self._started_at
+            else 0,
         }
 
     # ---- 代理到底层 server(协程 + 属性) ----
     @property
-    def proc(self):
+    def proc(self) -> Any:
         return self._server.proc if self._server else None
 
     @property
-    def initialize_result(self) -> dict:
+    def initialize_result(self) -> dict[str, Any]:
         return self._server.initialize_result if self._server else {}
 
-    def __getattr__(self, name: str):
-        if name.startswith("_") or name in ("status", "start", "stop", "restart",
-                                             "on_server_request", "on_notification", "on_reset",
-                                             "proc", "initialize_result",
-                                             "codex_command_for_exec"):
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_") or name in (
+            "status",
+            "start",
+            "stop",
+            "restart",
+            "on_server_request",
+            "on_notification",
+            "on_reset",
+            "proc",
+            "initialize_result",
+            "codex_command_for_exec",
+        ):
             raise AttributeError(name)
         if self._server is None:
-            raise RuntimeError("appserver not started")
+            msg = "appserver not started"
+            raise RuntimeError(msg)
         return getattr(self._server, name)

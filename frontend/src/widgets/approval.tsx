@@ -9,8 +9,8 @@ import { mountWidget } from "../lib/mount";
 function App() {
   useTheme();
   const host = useHostContext();
-  const input = useToolInput<any>() ?? {};
-  const output = useToolOutput<any>() ?? {};
+  const input = useToolInput() ?? {};
+  const output = useToolOutput() ?? {};
   const request = input.request ?? input.approval ?? input.params ?? input;
   const requestId = String(request.requestId ?? request.id ?? output.requestId ?? "");
   const title = String(request.title ?? request.kind ?? "需要确认");

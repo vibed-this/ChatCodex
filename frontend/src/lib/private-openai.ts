@@ -40,7 +40,7 @@ function hostMethod<K extends keyof PrivateOpenAiHost>(
   if (!Reflect.has(host, name)) return undefined;
   const method = Reflect.get(host, name) as PrivateOpenAiHost[K];
   return typeof method === "function"
-    ? method as NonNullable<PrivateOpenAiHost[K]>
+    ? method
     : undefined;
 }
 
@@ -72,11 +72,11 @@ async function invoke<T>(
   }
   const host = privateHost();
   if (!host) return unavailable(name);
-  let timer: number | undefined;
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
   try {
     const timeout = new Promise<never>((_, reject) => {
       timer = globalThis.setTimeout(
-        () => reject(new Error(`Private host capability timed out: ${name}`)),
+        () => { reject(new Error(`Private host capability timed out: ${name}`)); },
         PRIVATE_API_TIMEOUT_MS,
       );
     });
@@ -100,13 +100,13 @@ async function invoke<T>(
   }
 }
 
-export function showToast(input: ToastInput): Promise<PrivateApiResult<void>> {
+export function showToast(input: ToastInput): Promise<PrivateApiResult> {
   return invoke("toast", (host) => {
     host.showToast!({ ...input, body: input.body ?? "" });
   });
 }
 
-export function triggerHaptic(type: HapticType): Promise<PrivateApiResult<void>> {
+export function triggerHaptic(type: HapticType): Promise<PrivateApiResult> {
   return invoke(
     "haptic",
     (host) => {
@@ -144,7 +144,7 @@ export function requestPrompt(
   });
 }
 
-export function requestTargetedReply(text: string): Promise<PrivateApiResult<void>> {
+export function requestTargetedReply(text: string): Promise<PrivateApiResult> {
   return invoke(
     "targetedReply",
     (host) => {
@@ -157,13 +157,13 @@ export function requestTargetedReply(text: string): Promise<PrivateApiResult<voi
 export function requestFocusedObject(
   title: string,
   params: Record<string, unknown>,
-): Promise<PrivateApiResult<void>> {
+): Promise<PrivateApiResult> {
   return invoke("focusedObject", (host) => {
     host.requestFocusedObject!({ title, params });
   });
 }
 
-export function requestCloseFocusedObject(): Promise<PrivateApiResult<void>> {
+export function requestCloseFocusedObject(): Promise<PrivateApiResult> {
   return invoke("focusedObject", (host) => {
     host.requestCloseFocusedObject!();
   });
@@ -172,7 +172,7 @@ export function requestCloseFocusedObject(): Promise<PrivateApiResult<void>> {
 export function openConversationOverlay(
   conversationId: string,
   options: { origin?: string; title?: string } = {},
-): Promise<PrivateApiResult<void>> {
+): Promise<PrivateApiResult> {
   if (!conversationId.trim()) return Promise.resolve(privateApiFailure("invalid_result"));
   return invoke("conversationOverlay", (host) => {
     host.openConversationOverlay!({ conversationId, ...options });

@@ -19,7 +19,7 @@ function App() {
   useTheme();
   const host = useHostContext();
   const privateCapabilities = usePrivateCapabilities();
-  const output = useToolOutput<any>();
+  const output = useToolOutput();
   const suggested = useToolInput<{ cwd?: string; workMode?: WorkMode }>() ?? {};
   const suggestedCwd = suggested.cwd ?? output?.suggestedCwd ?? "";
   const [cwd, setCwd] = useState(suggestedCwd);
@@ -63,7 +63,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const result = await OA.callTool<any>("save_execution_context", { config: { cwd: cwd || undefined, workMode: mode } });
+      const result = await OA.callTool("save_execution_context", { config: { cwd: cwd || undefined, workMode: mode } });
       if (result?.error) throw new Error(result.message ?? result.error);
       setStarted(result);
       OA.setWidgetState({ conversationId: result?.conversationId, contextId: result?.contextId, contextVersion: result?.contextVersion, cwd, workMode: mode, recentDirectories: recentPaths.slice(0, 5) });
@@ -85,10 +85,10 @@ function App() {
     <div className="surface-body workspace-setup-body">
       <section className="widget-section">
         <label className="widget-label" htmlFor="workspace-cwd">工作目录</label>
-        <div className="workspace-path-row"><input id="workspace-cwd" className="widget-input" value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="C:\\repo" /><button type="button" className="widget-button widget-button-secondary" onClick={() => { setBrowserRoot(cwd); setShowBrowser((current) => !current); }}>{showBrowser ? "收起" : "浏览"}</button></div>
+        <div className="workspace-path-row"><input id="workspace-cwd" className="widget-input" value={cwd} onChange={(event) => { setCwd(event.target.value); }} placeholder="C:\\repo" /><button type="button" className="widget-button widget-button-secondary" onClick={() => { setBrowserRoot(cwd); setShowBrowser((current) => !current); }}>{showBrowser ? "收起" : "浏览"}</button></div>
       </section>
       {showBrowser && <DirBrowser initialPath={browserRoot} selectedPath={cwd} recentPaths={recentPaths} onSelect={(path) => { setCwd(path); setShowBrowser(false); }} />}
-      <section className="widget-section"><h2 className="widget-section-title">执行模式</h2><ChoiceList label="执行模式" value={mode} choices={WORK_MODES.map((item) => ({ value: item.value, title: item.title, description: item.description }))} onChange={(value) => setMode(value as WorkMode)} /></section>
+      <section className="widget-section"><h2 className="widget-section-title">执行模式</h2><ChoiceList label="执行模式" value={mode} choices={WORK_MODES.map((item) => ({ value: item.value, title: item.title, description: item.description }))} onChange={(value) => { setMode(value); }} /></section>
       {error && <Notice tone="danger" role="alert">{error}</Notice>}
     </div>
     <SurfaceFooter><button type="button" className="widget-button widget-button-primary" disabled={busy} onClick={() => void submit()}>{busy && <Loader2 aria-hidden="true" className="animate-spin" />}保存工作区</button></SurfaceFooter>

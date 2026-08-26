@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """Persistence services."""
 
 from .audit import AuditRepository

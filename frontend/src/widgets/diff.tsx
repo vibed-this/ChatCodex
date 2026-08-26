@@ -30,8 +30,8 @@ function App() {
   useTheme();
   const host = useHostContext();
   const privateCapabilities = usePrivateCapabilities();
-  const rawInput = useToolInput<any>();
-  const output = useToolOutput<any>();
+  const rawInput = useToolInput();
+  const output = useToolOutput();
   const [navigationError, setNavigationError] = useState("");
   const viewParams = OA.hostViewParams<any>(host.view);
   const modalInput = viewParams &&

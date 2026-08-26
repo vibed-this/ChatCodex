@@ -77,7 +77,7 @@ export function resetPrivateCapabilityFailures(): void {
 export function onPrivateCapabilitiesChanged(handler: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   window.addEventListener(PRIVATE_CAPABILITIES_EVENT, handler);
-  return () => window.removeEventListener(PRIVATE_CAPABILITIES_EVENT, handler);
+  return () => { window.removeEventListener(PRIVATE_CAPABILITIES_EVENT, handler); };
 }
 
 export function isPrivateCapabilityDisabled(name: PrivateCapabilityName): boolean {

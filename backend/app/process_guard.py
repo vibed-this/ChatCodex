@@ -1,13 +1,19 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """Best-effort operating-system ownership for spawned process trees."""
+
 from __future__ import annotations
 
 import ctypes
 import os
-from typing import Callable, Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def attach_windows_kill_job(
-        pid: int, log: Optional[Callable[[str], None]] = None) -> Optional[int]:
+    pid: int, log: Callable[[str], None] | None = None
+) -> int | None:
     """Return a kill-on-close Job Object handle for ``pid`` on Windows.
 
     Restricted or already job-contained hosts may reject assignment. That is a
@@ -55,12 +61,15 @@ def attach_windows_kill_job(
     kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.SetInformationJobObject.argtypes = [
-        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
     kernel32.SetInformationJobObject.restype = wintypes.BOOL
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.AssignProcessToJobObject.argtypes = [
-        wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
@@ -74,7 +83,8 @@ def attach_windows_kill_job(
     info = ExtendedLimitInformation()
     info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
     configured = kernel32.SetInformationJobObject(
-        job, 9, ctypes.byref(info), ctypes.sizeof(info))
+        job, 9, ctypes.byref(info), ctypes.sizeof(info)
+    )
     process = kernel32.OpenProcess(0x0001 | 0x0100, False, pid)
     assigned = bool(process and kernel32.AssignProcessToJobObject(job, process))
     if process:
@@ -87,7 +97,8 @@ def attach_windows_kill_job(
     return int(job)
 
 
-def close_windows_kill_job(handle: Optional[int]) -> None:
+def close_windows_kill_job(handle: int | None) -> None:
     if os.name == "nt" and handle:
         ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(
-            ctypes.c_void_p(handle))
+            ctypes.c_void_p(handle)
+        )

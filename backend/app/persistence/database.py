@@ -1,15 +1,20 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """数据库层:全新项目，仅创建当前所需表。"""
+
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
-import os
 import warnings
 from contextlib import contextmanager
-from typing import Iterator
+from typing import TYPE_CHECKING
 
-from ..config import Settings, _default_database_path
-from ..file_security import restrict_path_to_owner
+from app.config import Settings, _default_database_path
+from app.file_security import restrict_path_to_owner
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS approval_audit (
@@ -39,15 +44,16 @@ CREATE TABLE IF NOT EXISTS kv_config (
 
 
 class Database:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._local = threading.local()
         url = settings.database_url
         if url.startswith("sqlite:///"):
             self.kind = "sqlite"
-            self.path = os.path.abspath(os.path.expanduser(url[len("sqlite:///"):]))
+            self.path = os.path.abspath(os.path.expanduser(url[len("sqlite:///") :]))
         else:
-            raise ValueError(f"unsupported database_url: {url}")
+            msg = f"unsupported database_url: {url}"
+            raise ValueError(msg)
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         if os.path.normcase(self.path) == os.path.normcase(_default_database_path()):
             self._try_restrict(os.path.dirname(self.path), directory=True)
@@ -71,7 +77,11 @@ class Database:
         try:
             restrict_path_to_owner(path, directory=directory)
         except OSError as exc:
-            warnings.warn(f"could not restrict local ChatCodex state permissions for {path}: {exc}", RuntimeWarning, stacklevel=2)
+            warnings.warn(
+                f"could not restrict local ChatCodex state permissions for {path}: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     @contextmanager
     def conn(self) -> Iterator[sqlite3.Connection]:

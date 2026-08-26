@@ -44,8 +44,8 @@ function App() {
   useTheme();
   const host = useHostContext();
   const privateCapabilities = usePrivateCapabilities();
-  const rawInput = useToolInput<any>();
-  const output = useToolOutput<any>();
+  const rawInput = useToolInput();
+  const output = useToolOutput();
   const viewParams = OA.hostViewParams<any>(host.view);
   const modalInput = viewParams?.questions || viewParams?.questionInput
     ? viewParams
@@ -62,7 +62,7 @@ function App() {
     () => normalizeQuestions(output?.questions ?? source.questions ?? []),
     [output?.questions, source.questions],
   );
-  const savedDraft = OA.widgetState<any>()?.questionDraft ?? {};
+  const savedDraft = OA.widgetState()?.questionDraft ?? {};
   const [answers, setAnswers] = useState<QuestionAnswers>(() =>
     Object.fromEntries(
       Object.entries(savedDraft).filter(([id]) =>

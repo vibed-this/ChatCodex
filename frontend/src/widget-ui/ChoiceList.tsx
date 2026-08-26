@@ -30,7 +30,7 @@ export function ChoiceList<T extends string>({
           data-active={value === choice.value}
           disabled={choice.disabled}
           key={choice.value}
-          onClick={() => onChange(choice.value)}
+          onClick={() => { onChange(choice.value); }}
         >
           <span className="widget-radio" aria-hidden="true" />
           {choice.icon}

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """空闲 ephemeral Codex thread 作为 MCP 转发载体。
 
 每个会话键懒建一个 ``ephemeral`` thread(绝不调 ``turn/start``),
@@ -10,11 +11,12 @@
 - 因此本模块按需探活,发现 ``ThreadNotFound`` 即重建;不做无谓的空转保活,
   因为转发调用本身就会重置活跃计时。
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 class McpCarrier:
     """Owns one ephemeral carrier thread per WebChat execution context."""
 
-    def __init__(self, appserver: Any):
+    def __init__(self, appserver: Any) -> None:
         self.appserver = appserver
         self._threads: dict[str, str] = {}
         self._locks: dict[str, asyncio.Lock] = {}
@@ -43,7 +45,8 @@ class McpCarrier:
         result = await self.appserver.thread_start(ephemeral=True)
         thread_id = str((result or {}).get("thread", {}).get("id") or "")
         if not thread_id:
-            raise RuntimeError("thread/start did not return a thread id")
+            msg = "thread/start did not return a thread id"
+            raise RuntimeError(msg)
         return thread_id
 
     async def thread_id(self, key: str) -> str:
@@ -53,7 +56,8 @@ class McpCarrier:
             if existing:
                 try:
                     await self.appserver.mcp_server_status_list(
-                        existing, detail="NameOnly", limit=1)
+                        existing, detail="NameOnly", limit=1
+                    )
                     return existing
                 except Exception as exc:
                     if not self._is_missing_thread(exc):
@@ -72,9 +76,12 @@ class McpCarrier:
         if thread_id:
             try:
                 await self.appserver.call(
-                    "thread/archive", {"threadId": thread_id}, timeout=5)
+                    "thread/archive", {"threadId": thread_id}, timeout=5
+                )
             except Exception as exc:
-                logger.warning("failed to archive MCP carrier thread %s: %s", thread_id, exc)
+                logger.warning(
+                    "failed to archive MCP carrier thread %s: %s", thread_id, exc
+                )
 
     async def drop_all(self) -> None:
         for key in list(self._threads):

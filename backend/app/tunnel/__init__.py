@@ -1,3 +1,4 @@
-from .manager import TunnelManager, DirectTunnel, CloudflaredTunnel, ChatGptTunnel
+# Copyright (c) 2026 ChatCodex contributors.
+from .manager import ChatGptTunnel, CloudflaredTunnel, DirectTunnel, TunnelManager
 
-__all__ = ["TunnelManager", "DirectTunnel", "CloudflaredTunnel", "ChatGptTunnel"]
+__all__ = ["ChatGptTunnel", "CloudflaredTunnel", "DirectTunnel", "TunnelManager"]

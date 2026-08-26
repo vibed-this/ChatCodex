@@ -1,4 +1,6 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """Execution capability package."""
+
 from __future__ import annotations
 
 from .errors import (

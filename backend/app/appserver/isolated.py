@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """AppServer 隔离运行时:在专属线程跑专属事件循环,与 uvicorn 的 ProactorEventLoop 隔离。
 
 背景:uvicorn 在 Windows 的 ProactorEventLoop 下,子进程 stdio 的 readline 在
@@ -6,29 +7,36 @@
 
 对外提供与客户端相同的协程接口,内部经 run_coroutine_threadsafe 转发。
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
-from typing import Any, Awaitable, Optional
+from typing import TYPE_CHECKING, Any, cast
 
-from ..config import Settings
+if TYPE_CHECKING:
+    import concurrent.futures
+    from collections.abc import Awaitable, Callable, Coroutine
+
+    from app.config import Settings
 
 
 class IsolatedAppServer:
     """在专属线程运行一个 app-server 客户端(ws);协程接口与之一致。"""
 
-    def __init__(self, settings: Settings, client: Any):
+    def __init__(self, settings: Settings, client: Any) -> None:
         if client is None:
-            raise ValueError("IsolatedAppServer requires a client (e.g. WsAppServerClient)")
+            msg = "IsolatedAppServer requires a client (e.g. WsAppServerClient)"
+            raise ValueError(msg)
         self.settings = settings
         self._client = client
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
         self._ready = threading.Event()
-        self._start_error: Optional[BaseException] = None
+        self._start_error: BaseException | None = None
         # 主线程(uvicorn)loop,用于把子线程的回调桥回主线程
-        self._caller_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._caller_loop: asyncio.AbstractEventLoop | None = None
 
     # ---- 生命周期 ----
     def _run_loop(self) -> None:
@@ -43,10 +51,8 @@ class IsolatedAppServer:
             self._start_error = e
             self._ready.set()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 loop.run_until_complete(self._client.close())
-            except Exception:
-                pass
             loop.close()
 
     async def start(self) -> None:
@@ -55,7 +61,9 @@ class IsolatedAppServer:
             self._caller_loop = asyncio.get_running_loop()
         except RuntimeError:
             self._caller_loop = None
-        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="codex-appserver")
+        self._thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="codex-appserver"
+        )
         self._thread.start()
         # 等待子线程里 client.start() 完成(跨线程等待,轮询避免阻塞本 loop)
         while not self._ready.is_set():
@@ -83,62 +91,72 @@ class IsolatedAppServer:
         self._thread = None
 
     # ---- 回调注册:把子线程 loop 里的调用桥回主线程 loop ----
-    def on_server_request(self, handler) -> None:
-        async def bridged(msg: dict) -> dict:
+    def on_server_request(
+        self, handler: Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]
+    ) -> None:
+        async def bridged(msg: dict[str, Any]) -> dict[str, Any]:
             caller = self._caller_loop
             if caller is None:
                 return await handler(msg)
             # 子线程收到反向 request → 提交到主线程执行 handler → 跨线程等结果
             fut = asyncio.run_coroutine_threadsafe(handler(msg), caller)
-            return await asyncio.wrap_future(fut)
+            return cast("dict[str, Any]", await asyncio.wrap_future(fut))
 
         self._client.on_server_request(bridged)
 
-    def on_notification(self, handler) -> None:
-        async def bridged(method: str, params) -> None:
+    def on_notification(self, handler: Any) -> None:
+        async def bridged(method: str, params: Any) -> None:
             caller = self._caller_loop
             if caller is None:
                 await handler(method, params)
                 return
-            caller.call_soon_threadsafe(lambda: asyncio.ensure_future(handler(method, params)))
+            caller.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(handler(method, params))
+            )
 
         self._client.on_notification(bridged)
 
     # ---- 状态/属性代理 ----
     @property
-    def proc(self):
+    def proc(self) -> Any:
         return self._client.proc
 
     @property
-    def initialize_result(self) -> dict:
-        return self._client.initialize_result
+    def initialize_result(self) -> dict[str, Any]:
+        return cast("dict[str, Any]", self._client.initialize_result)
 
-    def status(self) -> dict:
-        return self._client.status()
+    def status(self) -> dict[str, Any]:
+        return cast("dict[str, Any]", self._client.status())
 
-    async def restart(self) -> dict:
-        return await self._submit(self._client.restart())
+    async def restart(self) -> dict[str, Any]:
+        return cast("dict[str, Any]", await self._submit(self._client.restart()))
 
     # ---- 通用转发:把协程提交到子线程 loop,并在本 loop 等待结果 ----
-    async def _submit(self, coro: Awaitable[Any]) -> Any:
+    async def _submit(self, coro: Coroutine[Any, Any, Any]) -> Any:
         loop = self._loop
         if loop is None or not loop.is_running():
             if hasattr(coro, "close"):
                 coro.close()
-            raise RuntimeError("appserver loop not running")
-        fut = asyncio.run_coroutine_threadsafe(coro, loop)
-        return await asyncio.wrap_future(fut)
+            msg = "appserver loop not running"
+            raise RuntimeError(msg)
+        fut: concurrent.futures.Future[Any] = asyncio.run_coroutine_threadsafe(
+            coro, loop
+        )
+        return cast("dict[str, Any]", await asyncio.wrap_future(fut))
 
-    def call(self, method: str, params: Any = None, *, timeout: float = 120.0) -> Awaitable[Any]:
+    def call(
+        self, method: str, params: Any = None, *, timeout: float = 120.0
+    ) -> Awaitable[Any]:
         return self._submit(self._client.call(method, params, timeout=timeout))
 
     # ---- 高层 RPC 代理(与客户端同名) ----
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         """把 client 的独立 RPC 协程方法透明转发到隔离事件循环。"""
         attr = getattr(self._client, name)
         if not callable(attr) or name.startswith("_"):
             return attr
 
-        async def forward(*args, **kwargs):
+        async def forward(*args: Any, **kwargs: Any) -> Any:
             return await self._submit(attr(*args, **kwargs))
+
         return forward

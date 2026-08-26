@@ -1,3 +1,4 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """WebSocket 传输的 codex app-server 客户端。
 
 ws:// 是 codex 为网络/多客户端设计的原生传输,绕开 Windows 上
@@ -5,58 +6,72 @@ uvicorn + stdio 子进程管道的兼容问题。回环(127.0.0.1)免鉴权。
 
 接口与传输无关,可互换。
 """
+
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+import contextlib
 import inspect
 import json
 import socket
 import tempfile
 import time
-from typing import Any, Optional
+from collections import deque
+from typing import TYPE_CHECKING, Any, cast
 
 import websockets
 
-from ..config import Settings
-from ..process_guard import attach_windows_kill_job, close_windows_kill_job
-from .jsonrpc import ServerRequestHandler, NotificationHandler
+from app.process_guard import attach_windows_kill_job, close_windows_kill_job
+
 from .resolve import CLIENT_NAME, CLIENT_VERSION, resolve_codex_executable
 from .rpc_methods import CodexRpcMethods
+
+if TYPE_CHECKING:
+    from app.config import Settings
+
+    from .jsonrpc import NotificationHandler, ServerRequestHandler
 
 
 class WsAppServerClient(CodexRpcMethods):
     """spawn `codex app-server --listen ws://127.0.0.1:PORT` 并经 WebSocket 连接。"""
 
-    def __init__(self, settings: Settings, port: int = 0, *, endpoint: str = "",
-                 bearer_token: str = "", token_file: str = "", spawn: bool = True):
+    def __init__(
+        self,
+        settings: Settings,
+        port: int = 0,
+        *,
+        endpoint: str = "",
+        bearer_token: str = "",
+        token_file: str = "",
+        spawn: bool = True,
+    ) -> None:
         self.settings = settings
         self.requested_port = port or 8765
         self.endpoint = endpoint or f"ws://127.0.0.1:{self.requested_port}"
         self.bearer_token = bearer_token
         self.token_file = token_file
         self.spawn_local = spawn
-        self.proc: Optional[asyncio.subprocess.Process] = None
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
-        self.initialize_result: dict = {}
+        self.proc: asyncio.subprocess.Process | None = None
+        self.ws: websockets.ClientConnection | None = None
+        self.initialize_result: dict[str, Any] = {}
         self.started_at: float = 0.0
         self.restart_count: int = 0
         self._next_id = 0
-        self._pending: dict[Any, asyncio.Future] = {}
-        self._read_task: Optional[asyncio.Task] = None
-        self._stdout_task: Optional[asyncio.Task] = None
-        self._stderr_task: Optional[asyncio.Task] = None
-        self._message_tasks: set[asyncio.Task] = set()
+        self._pending: dict[Any, asyncio.Future[Any]] = {}
+        self._read_task: asyncio.Task[Any] | None = None
+        self._stdout_task: asyncio.Task[Any] | None = None
+        self._stderr_task: asyncio.Task[Any] | None = None
+        self._message_tasks: set[asyncio.Task[Any]] = set()
         self._process_logs: deque[str] = deque(maxlen=100)
-        self._job_handle: Optional[int] = None
+        self._job_handle: int | None = None
         self._write_lock = asyncio.Lock()
-        self._on_server_request: Optional[ServerRequestHandler] = None
-        self._on_notification: Optional[NotificationHandler] = None
+        self._on_server_request: ServerRequestHandler | None = None
+        self._on_notification: NotificationHandler | None = None
         self.api_capabilities: dict[str, bool] = {}
-        self.api_compatible: Optional[bool] = None
+        self.api_compatible: bool | None = None
         self.api_warning = ""
         self.runtime_command = ""
-        self._runtime_cwd: Optional[tempfile.TemporaryDirectory[str]] = None
+        self._runtime_cwd: tempfile.TemporaryDirectory[str] | None = None
 
     def on_server_request(self, handler: ServerRequestHandler) -> None:
         self._on_server_request = handler
@@ -72,24 +87,29 @@ class WsAppServerClient(CodexRpcMethods):
                 prefix="chatcodex-appserver-"
             )
             command_prefix = resolve_codex_executable(self.settings.codex_command)
-            self.runtime_command = (
-                command_prefix[0] if len(command_prefix) == 1 else "")
-            argv = command_prefix + [
-                "app-server", "--listen", self.endpoint,
-            ]
+            self.runtime_command = command_prefix[0] if len(command_prefix) == 1 else ""
+            argv = [*command_prefix, "app-server", "--listen", self.endpoint]
             if self.token_file:
                 argv += [
-                    "--ws-auth", "capability-token",
-                    "--ws-token-file", self.token_file,
+                    "--ws-auth",
+                    "capability-token",
+                    "--ws-token-file",
+                    self.token_file,
                 ]
             self.proc = await asyncio.create_subprocess_exec(
-                *argv, stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                *argv,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=self._runtime_cwd.name,
             )
             self._attach_windows_kill_job()
-            self._stdout_task = asyncio.create_task(self._drain(self.proc.stdout, "stdout"))
-            self._stderr_task = asyncio.create_task(self._drain(self.proc.stderr, "stderr"))
+            self._stdout_task = asyncio.create_task(
+                self._drain(self.proc.stdout, "stdout")
+            )
+            self._stderr_task = asyncio.create_task(
+                self._drain(self.proc.stderr, "stderr")
+            )
         await self._connect_ws()
         self.started_at = time.time()
         self.initialize_result = await self.initialize()
@@ -108,23 +128,25 @@ class WsAppServerClient(CodexRpcMethods):
             )
         else:
             optional_missing = [
-                name for name in (
-                    "configRead", "configRequirements", "permissionProfiles"
-                )
+                name
+                for name in ("configRead", "configRequirements", "permissionProfiles")
                 if not self.api_capabilities.get(name)
             ]
             self.api_warning = (
                 "Connected Codex App Server lacks optional standalone RPCs: "
                 + ", ".join(optional_missing)
                 + ". Affected operations fail closed or use conservative "
-                  "Gateway policy."
-                if optional_missing else ""
+                "Gateway policy."
+                if optional_missing
+                else ""
             )
         await asyncio.sleep(0)
         if self.proc and self.proc.returncode is not None:
-            raise RuntimeError(
+            msg = (
                 f"spawned codex app-server exited with {self.proc.returncode}: "
-                f"{' | '.join(self._process_logs)[-1000:]}")
+                f"{' | '.join(self._process_logs)[-1000:]}"
+            )
+            raise RuntimeError(msg)
 
     def _ensure_port_available(self) -> None:
         """Never attach to an unrelated app-server already on the port."""
@@ -132,23 +154,26 @@ class WsAppServerClient(CodexRpcMethods):
             try:
                 probe.bind(("127.0.0.1", self.requested_port))
             except OSError as exc:
-                raise OSError(
+                msg = (
                     f"codex app-server port {self.requested_port} is already in use; "
-                    "choose a different CHATCODEX_CODEX_WS_PORT") from exc
+                    "choose a different CHATCODEX_CODEX_WS_PORT"
+                )
+                raise OSError(msg) from exc
 
-    async def _drain(self, stream, label: str) -> None:
+    async def _drain(self, stream: Any, label: str) -> None:
         if stream is None:
             return
         try:
             while line := await stream.readline():
                 self._process_logs.append(
-                    f"{label}: {line.decode('utf-8', 'replace').rstrip()}")
+                    f"{label}: {line.decode('utf-8', 'replace').rstrip()}"
+                )
         except asyncio.CancelledError:
             return
 
     async def _connect_ws(self) -> None:
         url = self.endpoint
-        last_err: Optional[Exception] = None
+        last_err: Exception | None = None
         attempts = 60 if self.spawn_local else 1
         for _ in range(attempts):
             try:
@@ -156,19 +181,21 @@ class WsAppServerClient(CodexRpcMethods):
                 if self.bearer_token:
                     header_key = (
                         "additional_headers"
-                        if "additional_headers" in inspect.signature(
-                            websockets.connect).parameters
+                        if "additional_headers"
+                        in inspect.signature(websockets.connect).parameters
                         else "extra_headers"
                     )
                     kwargs[header_key] = {
-                        "Authorization": f"Bearer {self.bearer_token}"}
+                        "Authorization": f"Bearer {self.bearer_token}"
+                    }
                 self.ws = await websockets.connect(url, **kwargs)
                 self._read_task = asyncio.create_task(self._read_loop())
                 return
             except Exception as e:
                 last_err = e
                 await asyncio.sleep(0.1)
-        raise ConnectionError(f"cannot connect app-server ws at {url}: {last_err}")
+        msg = f"cannot connect app-server ws at {url}: {last_err}"
+        raise ConnectionError(msg)
 
     async def _method_available(self, method: str, params: Any) -> bool:
         """A recognized method may reject harmless probe parameters and still exist."""
@@ -184,52 +211,60 @@ class WsAppServerClient(CodexRpcMethods):
         """Probe only thread-free official methods without changing state."""
         probes = {
             "commandExec": ("command/exec", {"command": []}),
-            "configRead": (
-                "config/read", {"cwd": None, "includeLayers": False}),
+            "configRead": ("config/read", {"cwd": None, "includeLayers": False}),
             "configRequirements": ("configRequirements/read", None),
             "permissionProfiles": ("permissionProfile/list", {}),
         }
-        results = await asyncio.gather(*(
-            self._method_available(method, params)
-            for method, params in probes.values()
-        ))
-        return dict(zip(probes, results))
+        results = await asyncio.gather(
+            *(
+                self._method_available(method, params)
+                for method, params in probes.values()
+            )
+        )
+        return dict(zip(probes, results, strict=False))
 
-    async def initialize(self) -> dict:
-        return await self.call("initialize", {
-            "clientInfo": {"name": CLIENT_NAME, "title": "ChatCodex Gateway", "version": CLIENT_VERSION},
-            "capabilities": {"experimentalApi": True, "mcpServerOpenaiFormElicitation": True},
-        })
+    async def initialize(self) -> dict[str, Any]:
+        return await self.call(
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": CLIENT_NAME,
+                    "title": "ChatCodex Gateway",
+                    "version": CLIENT_VERSION,
+                },
+                "capabilities": {
+                    "experimentalApi": True,
+                    "mcpServerOpenaiFormElicitation": True,
+                },
+            },
+        )
 
     async def close(self) -> None:
-        tasks = [task for task in (
-            self._read_task, self._stdout_task, self._stderr_task) if task]
+        tasks = [
+            task
+            for task in (self._read_task, self._stdout_task, self._stderr_task)
+            if task
+        ]
         if self._read_task:
             self._read_task.cancel()
         message_tasks = list(self._message_tasks)
         for task in message_tasks:
             task.cancel()
         if self.ws is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self.ws.close()
-            except Exception:
-                pass
         if self.proc and self.proc.returncode is None:
             try:
                 self.proc.terminate()
                 await asyncio.wait_for(self.proc.wait(), 5)
             except Exception:
                 if self.proc.returncode is None:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         self.proc.kill()
-                    except ProcessLookupError:
-                        pass
                     # Do not close the event loop while the Windows subprocess
                     # transport is still waiting for process termination.
-                    try:
+                    with contextlib.suppress(Exception):
                         await asyncio.wait_for(self.proc.wait(), 5)
-                    except Exception:
-                        pass
         self._close_windows_kill_job()
         for task in tasks:
             if not task.done():
@@ -263,22 +298,25 @@ class WsAppServerClient(CodexRpcMethods):
         """
         if self.proc is not None:
             self._job_handle = attach_windows_kill_job(
-                self.proc.pid, self._process_logs.append)
+                self.proc.pid, self._process_logs.append
+            )
 
     def _close_windows_kill_job(self) -> None:
         close_windows_kill_job(self._job_handle)
         self._job_handle = None
 
-    async def restart(self) -> dict:
+    async def restart(self) -> dict[str, Any]:
         await self.close()
         self.restart_count += 1
         await self.start()
         return self.status()
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         connected = self.ws is not None and not bool(getattr(self.ws, "closed", False))
         running = connected and (
-            not self.spawn_local or (self.proc is not None and self.proc.returncode is None))
+            not self.spawn_local
+            or (self.proc is not None and self.proc.returncode is None)
+        )
         return {
             "running": running,
             "pid": self.proc.pid if self.proc else None,
@@ -286,7 +324,9 @@ class WsAppServerClient(CodexRpcMethods):
             "listen": self.endpoint,
             "command": (
                 self.runtime_command or self.settings.codex_command
-                if self.spawn_local else ""),
+                if self.spawn_local
+                else ""
+            ),
             "userAgent": self.initialize_result.get("userAgent", ""),
             "codexHome": self.initialize_result.get("codexHome", ""),
             "platformFamily": self.initialize_result.get("platformFamily", ""),
@@ -294,7 +334,9 @@ class WsAppServerClient(CodexRpcMethods):
             "apiCapabilities": dict(self.api_capabilities),
             "apiCompatible": self.api_compatible,
             "apiWarning": self.api_warning,
-            "uptimeSec": int(time.time() - self.started_at) if running and self.started_at else 0,
+            "uptimeSec": int(time.time() - self.started_at)
+            if running and self.started_at
+            else 0,
             "restartCount": self.restart_count,
             "logs": list(self._process_logs)[-20:],
         }
@@ -304,38 +346,50 @@ class WsAppServerClient(CodexRpcMethods):
         self._next_id += 1
         return self._next_id
 
-    async def call(self, method: str, params: Any = None, *, timeout: float = 120.0) -> Any:
+    async def call(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
         rid = self._alloc_id()
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
         self._pending[rid] = fut
-        await self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        await self._send(
+            {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
+        )
         try:
-            return await asyncio.wait_for(fut, timeout)
+            return cast("dict[str, Any]", await asyncio.wait_for(fut, timeout))
         finally:
             self._pending.pop(rid, None)
 
     async def notify(self, method: str, params: Any = None) -> None:
         await self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
-    async def _respond(self, rid: Any, result: Any = None, error: Optional[dict] = None) -> None:
-        msg: dict = {"jsonrpc": "2.0", "id": rid}
+    async def _respond(
+        self, rid: Any, result: Any = None, error: dict[str, Any] | None = None
+    ) -> None:
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "id": rid}
         if error is not None:
             msg["error"] = error
         else:
             msg["result"] = result
         await self._send(msg)
 
-    async def _send(self, obj: dict) -> None:
+    async def _send(self, obj: dict[str, Any]) -> None:
         ws = self.ws
         if ws is None:
-            raise ConnectionError("app-server WebSocket is not connected")
+            msg = "app-server WebSocket is not connected"
+            raise ConnectionError(msg)
         async with self._write_lock:
             await ws.send(json.dumps(obj, ensure_ascii=False))
 
     async def _read_loop(self) -> None:
         ws = self.ws
         if ws is None:
-            raise ConnectionError("app-server WebSocket is not connected")
+            msg = "app-server WebSocket is not connected"
+            raise ConnectionError(msg)
         try:
             async for raw in ws:
                 try:
@@ -352,7 +406,7 @@ class WsAppServerClient(CodexRpcMethods):
                 if not fut.done():
                     fut.set_exception(ConnectionError("ws closed"))
 
-    def _dispatch(self, msg: dict) -> None:
+    def _dispatch(self, msg: dict[str, Any]) -> None:
         # 响应
         if "method" not in msg and "id" in msg:
             fut = self._pending.get(msg["id"])
@@ -360,7 +414,14 @@ class WsAppServerClient(CodexRpcMethods):
                 if "error" in msg:
                     e = msg["error"] or {}
                     from .jsonrpc import JsonRpcError
-                    fut.set_exception(JsonRpcError(e.get("code", -32000), e.get("message", "error"), e.get("data")))
+
+                    fut.set_exception(
+                        JsonRpcError(
+                            e.get("code", -32000),
+                            e.get("message", "error"),
+                            e.get("data"),
+                        )
+                    )
                 else:
                     fut.set_result(msg.get("result"))
             return
@@ -368,33 +429,36 @@ class WsAppServerClient(CodexRpcMethods):
         if "method" in msg and "id" in msg:
             self._track_message_task(self._handle_server_request(msg))
             return
-        if "method" in msg:
-            if self._on_notification:
-                self._track_message_task(self._safe_notify(msg))
+        if "method" in msg and self._on_notification:
+            self._track_message_task(self._safe_notify(msg))
 
-    def _track_message_task(self, coro) -> None:
+    def _track_message_task(self, coro: Any) -> None:
         """Keep reverse-RPC tasks bounded by the WebSocket lifecycle."""
         task = asyncio.create_task(coro)
         self._message_tasks.add(task)
 
-        def done(completed: asyncio.Task) -> None:
+        def done(completed: asyncio.Task[Any]) -> None:
             self._message_tasks.discard(completed)
             if not completed.cancelled():
                 completed.exception()
 
         task.add_done_callback(done)
 
-    async def _handle_server_request(self, msg: dict) -> None:
+    async def _handle_server_request(self, msg: dict[str, Any]) -> None:
         if self._on_server_request:
             try:
                 result = await self._on_server_request(msg)
                 await self._respond(msg["id"], result=result)
             except Exception as exc:
-                await self._respond(msg["id"], error={"code": -32000, "message": str(exc)})
+                await self._respond(
+                    msg["id"], error={"code": -32000, "message": str(exc)}
+                )
         else:
-            await self._respond(msg["id"], error={"code": -32601, "message": "method not found"})
+            await self._respond(
+                msg["id"], error={"code": -32601, "message": "method not found"}
+            )
 
-    async def _safe_notify(self, msg: dict) -> None:
+    async def _safe_notify(self, msg: dict[str, Any]) -> None:
         try:
             await self._on_notification(msg["method"], msg.get("params"))  # type: ignore[misc]
         except Exception:

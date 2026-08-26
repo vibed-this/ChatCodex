@@ -38,7 +38,7 @@ export function DiffViewer({
       setSelectedPath(initialPath);
     }
   }, [files, initialPath]);
-  useEffect(() => setLineLimit(INITIAL_LINE_LIMIT), [selectedPath]);
+  useEffect(() => { setLineLimit(INITIAL_LINE_LIMIT); }, [selectedPath]);
   const visibleLines = useMemo(
     () => file?.lines.slice(0, lineLimit) ?? [],
     [file, lineLimit],
@@ -67,7 +67,7 @@ export function DiffViewer({
             className="diff-file"
             data-active={item.path === file?.path}
             key={item.path}
-            onClick={() => choose(item.path)}
+            onClick={() => { choose(item.path); }}
           >
             <KindBadge kind={item.kind} />
             <span className="diff-file-path">{item.path}</span>
@@ -86,7 +86,7 @@ export function DiffViewer({
                 className="diff-mobile-select"
                 value={file.path}
                 aria-label="选择改动文件"
-                onChange={(event) => choose(event.target.value)}
+                onChange={(event) => { choose(event.target.value); }}
               >
                 {files.map((item) => <option value={item.path} key={item.path}>{item.path}</option>)}
               </select>
@@ -100,12 +100,12 @@ export function DiffViewer({
                 {copied ? "已复制" : "复制路径"}
               </button>
               {onTarget && (
-                <button type="button" className="widget-icon-button" onClick={() => onTarget(file)}>
+                <button type="button" className="widget-icon-button" onClick={() => { onTarget(file); }}>
                   <MessageSquareText aria-hidden="true" />在 ChatGPT 中提问
                 </button>
               )}
               {onFocus && (
-                <button type="button" className="widget-icon-button" onClick={() => onFocus(file)}>
+                <button type="button" className="widget-icon-button" onClick={() => { onFocus(file); }}>
                   <Focus aria-hidden="true" />聚焦查看
                 </button>
               )}
@@ -120,7 +120,7 @@ export function DiffViewer({
                 <button
                   type="button"
                   className="diff-load-more"
-                  onClick={() => setLineLimit((current) => current + INITIAL_LINE_LIMIT)}
+                  onClick={() => { setLineLimit((current) => current + INITIAL_LINE_LIMIT); }}
                 >
                   再显示 {Math.min(INITIAL_LINE_LIMIT, file.lines.length - lineLimit)} 行
                 </button>
@@ -131,7 +131,7 @@ export function DiffViewer({
                 type="button"
                 className="widget-icon-button"
                 disabled={selectedIndex === 0}
-                onClick={() => choose(files[selectedIndex - 1].path)}
+                onClick={() => { choose(files[selectedIndex - 1].path); }}
               >
                 <ChevronLeft aria-hidden="true" />上一文件
               </button>
@@ -140,7 +140,7 @@ export function DiffViewer({
                 type="button"
                 className="widget-icon-button"
                 disabled={selectedIndex === files.length - 1}
-                onClick={() => choose(files[selectedIndex + 1].path)}
+                onClick={() => { choose(files[selectedIndex + 1].path); }}
               >
                 下一文件<ChevronRight aria-hidden="true" />
               </button>

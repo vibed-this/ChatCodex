@@ -1,5 +1,9 @@
+# Copyright (c) 2026 ChatCodex contributors.
 """Structured errors for the execution layer."""
+
 from __future__ import annotations
+
+from typing import Any
 
 
 class ExecutionError(Exception):
@@ -8,13 +12,16 @@ class ExecutionError(Exception):
     code = "execution_error"
     retryable = False
 
-    def __init__(self, message: str, *args, hint: str = "", retryable: bool | None = None):
+    def __init__(
+        self, message: str, *args: Any, hint: str = "", retryable: bool | None = None
+    ) -> None:
         # Accept the legacy (code, message, hint) shape during the migration so
         # adapters can normalize old capability implementations without leaking
         # the old exception type across the boundary.
         if args:
             if len(args) > 2:
-                raise TypeError("ExecutionError accepts at most code, message, hint")
+                msg = "ExecutionError accepts at most code, message, hint"
+                raise TypeError(msg)
             code = str(message)
             if len(args) == 1:
                 message, hint = str(args[0]), message
@@ -63,7 +70,6 @@ _ERROR_TYPES = {
     "permission_denied": PermissionDeniedError,
     "invalid_input": InvalidInputError,
     "invalid_pattern": InvalidInputError,
-    "invalid_input": InvalidInputError,
     "invalid_edit": InvalidInputError,
     "invalid_timeout": InvalidInputError,
     "invalid_plan": InvalidInputError,

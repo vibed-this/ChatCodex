@@ -15,6 +15,10 @@ dependencies = [
 [project.optional-dependencies]
 # 生产可换 PostgreSQL 驱动;sqlite 走 stdlib 无需依赖
 postgres = ["psycopg[binary]>=3.1"]
+dev = [
+    "mypy>=1.17,<2",
+    "ruff>=0.12,<1",
+]
 
 [project.scripts]
 chatcodex-gateway = "app.main:main"
@@ -25,3 +29,93 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN401", # Any is sometimes required at dynamic protocol boundaries.
+    "COM812", # Formatter-compatible trailing comma rule.
+    "D", # Existing public API does not require docstrings everywhere.
+    "ANN", # Strict typing is enforced by mypy; Ruff annotation rules duplicate that checker.
+    "ISC001", # Formatter-compatible implicit concatenation rule.
+    "TD", # TODO comments are tracked separately from linting.
+    "ARG", # Framework callbacks and compatibility shims intentionally accept unused arguments.
+    "ASYNC109", # Public timeout parameters are part of the transport-facing API.
+    "ASYNC110", # Thread-isolated services intentionally poll cross-thread readiness events.
+    "ASYNC230", # Small synchronous filesystem operations are intentionally isolated behind async APIs.
+    "ASYNC240", # Filesystem compatibility code uses os.path at transport boundaries.
+    "BLE001", # Boundary layers normalize heterogeneous third-party and process exceptions.
+    "B904", # Boundary exceptions intentionally preserve stable application error categories.
+    "C901", # Protocol adapters aggregate several validation and compatibility branches.
+    "CPY001", # Copyright headers are not required for every generated/test module.
+    "FBT", # Boolean flags are part of compatibility and framework callback signatures.
+    "INP001", # Tests are executable modules rather than a distributable package.
+    "N803", # External JSON/RPC contracts intentionally preserve camelCase parameter names.
+    "PLR", # Complexity is controlled by protocol boundaries and is covered by tests.
+    "PTH", # Existing cross-platform path compatibility intentionally uses os.path in places.
+    "RUF001", # Unicode normalization tables intentionally contain ambiguous Unicode characters.
+    "RUF002", # Existing multilingual docstrings intentionally preserve source punctuation.
+    "RUF003", # Existing multilingual comments intentionally preserve source punctuation.
+    "S104", # Host-address comparisons are not network binds.
+    "S105", # Secret names and development sentinel values are configuration identifiers.
+    "S106", # Integration tests intentionally pass known test credentials.
+    "S107", # Token-use identifiers are not credentials.
+    "S110", # Cleanup paths intentionally suppress secondary failures.
+    "S112", # Parser loops intentionally discard malformed input and continue.
+    "S310", # URL schemes are validated by surrounding application logic.
+    "S603", # Process execution is the explicit purpose of the full-access execution service.
+    "S604", # shell=True is required for the shell-compatible command contract.
+    "S607", # Windows taskkill is resolved by the operating system.
+    "SLF001", # Internal framework helpers are intentionally accessed at integration boundaries.
+    "TRY003", # Stable application errors intentionally carry contextual messages at call sites.
+    "TRY004", # Existing error normalization preserves ValueError compatibility.
+    "E402", # Some compatibility imports intentionally follow runtime feature detection.
+    "E501", # Long protocol strings and embedded HTML are kept readable as literals.
+    "ERA001", # Commented compatibility notes are intentionally retained.
+    "FAST002", # FastAPI dependency signatures are dictated by the framework contract.
+    "RUF012", # Immutable-by-convention class configuration is intentionally shared.
+    "SIM102", # Nested guards sometimes mirror protocol validation stages.
+    "SIM105", # Explicit cleanup blocks are clearer at lifecycle boundaries.
+    "SIM115", # Thread-offloaded file reads use a deliberately compact callback.
+    "TRY300", # Returning from guarded transport operations is intentionally explicit.
+    "TRY301", # Exception construction is intentionally kept at the validation site.
+    "PLW0603", # The module-level runtime is an intentional application singleton.
+    "PLC0415", # Optional dependencies are imported lazily to keep startup lightweight.
+    "B008", # FastAPI Depends calls are framework-managed dependency declarations.
+    "N818", # Existing exception names are part of the application API.
+    "A001", # Compatibility exception names may intentionally shadow builtins.
+    "A004", # Public compatibility exports may intentionally shadow builtins.
+    "B007", # Enumerated indices are retained for readability in compatibility code.
+    "E722", # Legacy parser fallback intentionally suppresses malformed optional input.
+    "PERF401", # Explicit loops preserve the structure of protocol response objects.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+no_implicit_optional = true
+exclude = ["^tests/fixtures/"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

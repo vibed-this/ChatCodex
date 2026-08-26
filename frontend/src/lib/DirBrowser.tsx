@@ -221,8 +221,8 @@ export function DirBrowser({
             data-expanded={expanded}
             style={{ paddingInlineStart: `${0.625 + (level - 1) * 1.125}rem` }}
             onClick={() => onSelect?.(entry.path)}
-            onFocus={() => setActivePath(entry.path)}
-            onKeyDown={(event) => handleTreeKey(event, item)}
+            onFocus={() => { setActivePath(entry.path); }}
+            onKeyDown={(event) => { handleTreeKey(event, item); }}
           >
             <Folder aria-hidden="true" />
             <span>{entry.name}</span>

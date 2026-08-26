@@ -61,7 +61,7 @@ export function useTheme(): OA.Theme {
 export function useHostContext(): OA.HostContext {
   const [context, setContext] = useState<OA.HostContext>(OA.hostContext());
   useEffect(() => {
-    const apply = () => setContext(OA.hostContext());
+    const apply = () => { setContext(OA.hostContext()); };
     apply();
     return OA.onOpenAiEvent(apply);
   }, []);
@@ -72,7 +72,7 @@ export function useHostContext(): OA.HostContext {
 export function usePrivateCapabilities(): PrivateCapabilities {
   const [capabilities, setCapabilities] = useState(detectPrivateCapabilities());
   useEffect(() => {
-    const apply = () => setCapabilities(detectPrivateCapabilities());
+    const apply = () => { setCapabilities(detectPrivateCapabilities()); };
     apply();
     const offHost = OA.onOpenAiEvent(apply);
     const offPrivate = onPrivateCapabilitiesChanged(apply);
@@ -121,7 +121,7 @@ export function useIntrinsicHeight(dep: any[] = []) {
     let frame = 0;
     const report = () => {
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => OA.notifyIntrinsicHeight());
+      frame = window.requestAnimationFrame(() => { OA.notifyIntrinsicHeight(); });
     };
     report();
     const ro = new ResizeObserver(report);
