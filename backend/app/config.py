@@ -60,6 +60,15 @@ class Settings:
         ),
     )
     mcp_access_token: str = _env("CHATCODEX_MCP_ACCESS_TOKEN", "")
+    # Optional downstream MCP bridge. The server is started only when a Chrome
+    # DevTools proxy tool is actually invoked; listing tools never launches it.
+    chrome_devtools_mcp_enabled: bool = _env(
+        "CHATCODEX_CHROME_DEVTOOLS_MCP_ENABLED", "1"
+    ).lower() in {"1", "true", "yes", "on"}
+    chrome_devtools_mcp_command: str = _env(
+        "CHATCODEX_CHROME_DEVTOOLS_MCP_COMMAND",
+        "npx --yes chrome-devtools-mcp@latest",
+    )
     oauth_token_secret: str = _env(
         "CHATCODEX_OAUTH_TOKEN_SECRET", "dev-secret-change-me"
     )
