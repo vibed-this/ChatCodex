@@ -1,7 +1,8 @@
-"""Full-access MCP gateway: no workspace, no approval gating."""
+"""Full-access MCP gateway aligned to opencode tools: read/write/edit/glob/grep/bash/apply_patch."""
 from __future__ import annotations
 
 import ipaddress
+import json as _json
 from typing import Any, Optional
 
 from mcp import types as mtypes
@@ -58,6 +59,30 @@ def _tool_result(data: dict[str, Any], summary: str) -> mtypes.CallToolResult:
     return mtypes.CallToolResult(content=[mtypes.TextContent(type="text", text=summary)], structuredContent=data)
 
 
+def _dbg_in(name: str, payload: dict[str, Any]) -> None:
+    try:
+        txt = _json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception:
+        txt = str(payload)
+    if len(txt) > 4000:
+        txt = txt[:4000] + f" ...[truncated {len(txt)-4000} chars]"
+    print(f"[mcp] {name} input: {txt}", flush=True)
+
+
+def _dbg_out(name: str, payload: Any) -> None:
+    try:
+        txt = _json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception:
+        txt = str(payload)
+    if len(txt) > 8000:
+        txt = txt[:8000] + f" ...[truncated {len(txt)-8000} chars]"
+    print(f"[mcp] {name} output: {txt}", flush=True)
+
+
+def _dbg_err(name: str, err: Exception) -> None:
+    print(f"[mcp] {name} error: {err}", flush=True)
+
+
 def _output_schemas() -> dict[str, dict[str, Any]]:
     def obj(properties: dict[str, Any], required: Optional[list[str]] = None) -> dict[str, Any]:
         schema: dict[str, Any] = {"type": "object", "properties": properties, "additionalProperties": False}
@@ -69,13 +94,16 @@ def _output_schemas() -> dict[str, dict[str, Any]]:
     integer = {"type": "integer"}
     any_object = {"type": "object", "additionalProperties": True}
     nullable_string = {"anyOf": [string, {"type": "null"}]}
+    nullable_integer = {"anyOf": [integer, {"type": "null"}]}
     return {
-        "read_file": obj({"path": string, "encoding": string, "sizeBytes": integer, "startLine": integer, "endLine": integer, "totalLines": integer, "content": string, "dataBase64": string, "truncated": boolean}, ["path", "encoding", "sizeBytes", "truncated"]),
-        "write_file": obj({"path": string, "encoding": string, "bytesWritten": integer, "written": boolean, "changed": boolean, "fileChanges": {"type": "array", "items": string}, "diff": string, "diffTruncated": boolean}, ["path", "encoding", "bytesWritten", "written", "changed", "fileChanges", "diff", "diffTruncated"]),
-        "list_dir": obj({"entries": {"type": "array", "items": any_object}}, ["entries"]),
-        "search_files": obj({"files": {"type": "array", "items": any_object}}, ["files"]),
-        "exec_command": obj({"exitCode": integer, "stdout": string, "stderr": string}, ["exitCode", "stdout", "stderr"]),
-        "apply_patch": obj({"applied": boolean, "fileChanges": {"type": "array", "items": string}, "diff": string, "diffTruncated": boolean}, ["applied", "fileChanges"]),
+        # 新项目严格对齐：output_schema 与 execution.py 的实际返回值一一对应，additionalProperties:false，无兼容字段
+        "read": obj({"title": string, "output": string, "metadata": any_object, "content": string, "entries": {"type": "array", "items": string}, "truncated": boolean, "totalLines": integer, "lineStart": integer, "lineEnd": integer, "totalEntries": integer, "dataBase64": string, "mime": string}, ["title", "output"]),
+        "write": obj({"title": string, "output": string, "metadata": any_object, "path": string, "bytesWritten": integer, "written": boolean, "changed": boolean, "diff": string, "diffTruncated": boolean}, ["title", "output", "path", "bytesWritten", "written", "changed"]),
+        "edit": obj({"title": string, "output": string, "metadata": any_object, "diff": string, "additions": integer, "deletions": integer}, ["title", "output"]),
+        "glob": obj({"title": string, "output": string, "metadata": any_object, "files": {"type": "array", "items": any_object}, "truncated": boolean}, ["title", "output"]),
+        "grep": obj({"title": string, "output": string, "metadata": any_object, "matches": integer, "truncated": boolean, "rows": {"type": "array", "items": any_object}}, ["title", "output"]),
+        "bash": obj({"title": string, "output": string, "metadata": any_object, "exitCode": nullable_integer, "stdout": string, "stderr": string, "truncated": boolean, "outputPath": nullable_string}, ["title", "output"]),
+        "apply_patch": obj({"title": string, "output": string, "metadata": any_object, "diff": string, "files": {"type": "array", "items": any_object}, "applied": boolean, "fileChanges": {"type": "array", "items": string}}, ["title", "output"]),
         "update_plan": obj({"updated": boolean, "explanation": string, "plan": {"type": "array", "items": any_object}}, ["updated", "explanation", "plan"]),
         "view_image": obj({"path": string, "mimeType": string, "sizeBytes": integer}, ["path", "mimeType", "sizeBytes"]),
         "request_user_input": obj({"action": string, "questions": {"type": "array", "items": any_object}}, ["action", "questions"]),
@@ -99,67 +127,112 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
             return ToolError(f"{exc.code}: {exc}{hint}")
         return ToolError(str(exc))
 
-    @mcp.tool("read_file", description="Read any file on the host (full access).", meta={"openai/toolInvocation/invoking": "Reading file", "openai/toolInvocation/invoked": "Read file"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
-    async def read_file(ctx: Context, path: str, startLine: int = 1, endLine: Optional[int] = None, maxChars: int = 100_000) -> dict[str, Any]:
+    # ---- opencode-aligned tools ----
+
+    @mcp.tool("read", description="Read a file or directory from the local filesystem. If the path does not exist, an error is returned. Usage: filePath must be absolute. By default returns up to 2000 lines. Use offset (1-indexed) and limit. Contents returned with line numbers as `<line>: <content>`. For directories entries returned one per line with trailing '/' for subdirs. Lines >2000 chars truncated. Can read images/PDFs.", meta={"openai/toolInvocation/invoking": "Reading", "openai/toolInvocation/invoked": "Read"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+    async def read(ctx: Context, filePath: str, offset: Optional[int] = None, limit: Optional[int] = None) -> dict[str, Any]:
+        _dbg_in("read", {"filePath": filePath, "offset": offset, "limit": limit})
         try:
-            return await orch.read_file(path, startLine, endLine, maxChars)
+            result = await orch.read(filePath, offset, limit)
+            _dbg_out("read", result)
+            return result
         except Exception as exc:
+            _dbg_err("read", exc)
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("write_file", description="Write UTF-8 text to any host path (full access).", meta={"openai/toolInvocation/invoking": "Writing file", "openai/toolInvocation/invoked": "File written"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False})
-    async def write_file(ctx: Context, path: str, content: str) -> dict[str, Any]:
+    @mcp.tool("write", description="Writes a file to the local filesystem. Usage: will overwrite existing file. Prefer edit for existing files. NEVER proactively create docs unless requested. Only use emojis if requested.", meta={"openai/toolInvocation/invoking": "Writing file", "openai/toolInvocation/invoked": "File written"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False})
+    async def write(ctx: Context, filePath: str, content: str) -> dict[str, Any]:
+        _dbg_in("write", {"filePath": filePath, "content": content[:2000] + ("...[truncated]" if len(content) > 2000 else "")})
         try:
-            return await orch.write_file(path, content)
+            result = await orch.write(filePath, content)
+            _dbg_out("write", result)
+            return result
         except Exception as exc:
+            _dbg_err("write", exc)
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("list_dir", description="List any directory on the host.", meta={"openai/toolInvocation/invoking": "Listing directory", "openai/toolInvocation/invoked": "Listed directory"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
-    async def list_dir(ctx: Context, path: Optional[str] = None) -> dict[str, Any]:
+    @mcp.tool("edit", description="Performs exact string replacements in files. Usage: must read first. Preserve indentation after line-number prefix. Will FAIL if oldString not found or multiple matches. Use replaceAll for renaming.", meta={"openai/toolInvocation/invoking": "Editing file", "openai/toolInvocation/invoked": "Edit applied"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
+    async def edit(ctx: Context, filePath: str, oldString: str, newString: str, replaceAll: bool = False) -> dict[str, Any]:
+        _dbg_in("edit", {"filePath": filePath, "oldString": oldString[:2000], "newString": newString[:2000], "replaceAll": replaceAll})
         try:
-            return await orch.list_dir(path or "")
+            result = await orch.edit(filePath, oldString, newString, replaceAll)
+            _dbg_out("edit", result)
+            return result
         except Exception as exc:
+            _dbg_err("edit", exc)
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("search_files", description="Fuzzy-search files on the host.", meta={"openai/toolInvocation/invoking": "Searching files", "openai/toolInvocation/invoked": "Searched files"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
-    async def search_files(ctx: Context, query: str, path: Optional[str] = None) -> dict[str, Any]:
+    @mcp.tool("glob", description="Fast file pattern matching tool that works with any codebase size. Supports glob patterns like \"**/*.js\" or \"src/**/*.ts\". Returns matching file paths.", meta={"openai/toolInvocation/invoking": "Globbing", "openai/toolInvocation/invoked": "Globbed"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+    async def glob(ctx: Context, pattern: str, path: Optional[str] = None) -> dict[str, Any]:
+        _dbg_in("glob", {"pattern": pattern, "path": path})
         try:
-            return await orch.search_files(query, path or "")
+            result = await orch.glob(pattern, path)
+            _dbg_out("glob", result)
+            return result
         except Exception as exc:
+            _dbg_err("glob", exc)
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("exec_command", description="Execute any argv command on the host (full access, dangerFullAccess).", meta={"openai/toolInvocation/invoking": "Running command", "openai/toolInvocation/invoked": "Command finished"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
-    async def exec_command(ctx: Context, command: list[str], cwd: Optional[str] = None, timeoutMs: Optional[int] = None, requireEscalated: bool = False, justification: Optional[str] = None) -> dict[str, Any]:
-        if timeoutMs is not None and (isinstance(timeoutMs, bool) or timeoutMs < 0):
-            raise ToolError("timeoutMs must be a non-negative integer")
+    @mcp.tool("grep", description="Fast content search tool that works with any codebase size. Searches file contents using regex. Supports full regex syntax (e.g. \"log.*Error\", \"function\\\\s+\\\\w+\"). Filter files with include (e.g. \"*.js\"). Returns file paths and line numbers.", meta={"openai/toolInvocation/invoking": "Grepping", "openai/toolInvocation/invoked": "Grep done"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+    async def grep(ctx: Context, pattern: str, path: Optional[str] = None, include: Optional[str] = None) -> dict[str, Any]:
+        _dbg_in("grep", {"pattern": pattern, "path": path, "include": include})
         try:
-            return await orch.exec(command, cwd or "", timeoutMs)
+            result = await orch.grep(pattern, path, include)
+            _dbg_out("grep", result)
+            return result
         except Exception as exc:
+            _dbg_err("grep", exc)
             raise as_tool_error(exc) from exc
 
-    @mcp.tool("apply_patch", description="Apply a Codex-format patch (full access).", meta={"openai/toolInvocation/invoking": "Applying patch", "openai/toolInvocation/invoked": "Patch applied"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
-    async def apply_patch(ctx: Context, patch: str) -> dict[str, Any]:
+    @mcp.tool("bash", description="Executes a given bash command with optional timeout, ensuring proper handling. All commands run in cwd by default. Use workdir instead of cd. Always quote paths with spaces. If output exceeds limits it is truncated and full output saved to file. Avoid using bash with find/grep/cat/head/tail/sed/awk/echo unless needed - use dedicated tools. Use workdir param not `cd`.", meta={"openai/toolInvocation/invoking": "Running command", "openai/toolInvocation/invoked": "Command finished"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
+    async def bash(ctx: Context, command: str, timeout: Optional[int] = None, workdir: Optional[str] = None) -> dict[str, Any]:
+        _dbg_in("bash", {"command": command, "timeout": timeout, "workdir": workdir})
+        if timeout is not None and (isinstance(timeout, bool) or timeout < 0):
+            raise ToolError("timeout must be a non-negative integer")
         try:
-            return await orch.apply_patch(patch)
+            result = await orch.bash(command, timeout, workdir)
+            _dbg_out("bash", result)
+            return result
         except Exception as exc:
+            _dbg_err("bash", exc)
+            raise as_tool_error(exc) from exc
+
+    @mcp.tool("apply_patch", description="Use apply_patch to edit files. Your patch language is a stripped-down, file-oriented diff format. Envelope: *** Begin Patch ... *** End Patch with headers *** Add File: <path>, *** Delete File: <path>, *** Update File: <path> (+ optional *** Move to: <path>) and hunks with @@ and +/-/  lines.", meta={"openai/toolInvocation/invoking": "Applying patch", "openai/toolInvocation/invoked": "Patch applied"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
+    async def apply_patch(ctx: Context, patchText: str) -> dict[str, Any]:
+        _dbg_in("apply_patch", {"patchText": patchText[:4000] + ("...[truncated]" if len(patchText) > 4000 else "")})
+        try:
+            result = await orch.apply_patch(patchText)
+            _dbg_out("apply_patch", result)
+            return result
+        except Exception as exc:
+            _dbg_err("apply_patch", exc)
             raise as_tool_error(exc) from exc
 
     @mcp.tool("update_plan", description="Publish the coding plan.", annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
     async def update_plan(ctx: Context, plan: list[dict], explanation: Optional[str] = None) -> dict[str, Any]:
+        _dbg_in("update_plan", {"plan": plan, "explanation": explanation})
         try:
-            return await orch.update_plan(plan, explanation or "")
+            result = await orch.update_plan(plan, explanation or "")
+            _dbg_out("update_plan", result)
+            return result
         except Exception as exc:
+            _dbg_err("update_plan", exc)
             raise as_tool_error(exc) from exc
 
     @mcp.tool("view_image", description="Open a local image.", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
     async def view_image(ctx: Context, path: str) -> mtypes.CallToolResult:
+        _dbg_in("view_image", {"path": path})
         try:
             data = await orch.view_image(path)
+            _dbg_out("view_image", {k: v if k != "dataBase64" else f"<base64 {len(v)} chars>" for k, v in data.items()})
+            return mtypes.CallToolResult(content=[mtypes.TextContent(type="text", text=f"Opened image: {data['path']}"), mtypes.ImageContent(type="image", data=data["dataBase64"], mimeType=data["mimeType"])], structuredContent={k: v for k, v in data.items() if k != "dataBase64"})
         except Exception as exc:
+            _dbg_err("view_image", exc)
             raise as_tool_error(exc) from exc
-        return mtypes.CallToolResult(content=[mtypes.TextContent(type="text", text=f"Opened image: {data['path']}"), mtypes.ImageContent(type="image", data=data["dataBase64"], mimeType=data["mimeType"])], structuredContent={k: v for k, v in data.items() if k != "dataBase64"})
 
     @mcp.tool("request_user_input", description="Prepare one to three non-secret questions for WebChat to ask.", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False})
     async def request_user_input(ctx: Context, questions: list[dict]) -> dict[str, Any]:
+        _dbg_in("request_user_input", {"questions": questions})
         if not 1 <= len(questions) <= 3:
             raise ToolError("questions must contain between one and three items")
         normalized = []
@@ -172,24 +245,37 @@ def build_mcp(settings: Settings, orch: ExecutionOrchestrator, approval: Any, au
                 raise ToolError(f"invalid or duplicate question id: {question_id}")
             seen.add(question_id)
             normalized.append({"id": question_id, "header": str(question.get("header") or ""), "question": str(question.get("question") or question.get("header") or question_id), "options": [{"label": str(option.get("label") or option.get("value") or ""), "description": str(option.get("description") or "")} for option in (question.get("options") or []) if str(option.get("label") or option.get("value") or "")], "is_other": bool(question.get("is_other") or question.get("isOther")), "is_secret": False})
-        return {"action": "ask_user", "questions": normalized}
+        result = {"action": "ask_user", "questions": normalized}
+        _dbg_out("request_user_input", result)
+        return result
 
     @mcp.tool("browse_dir", description="Browse server directories.", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
     async def browse_dir(path: Optional[str] = None) -> dict[str, Any]:
-        return await orch.browse_dir(path or "")
+        _dbg_in("browse_dir", {"path": path})
+        result = await orch.browse_dir(path or "")
+        _dbg_out("browse_dir", result)
+        return result
 
     @mcp.tool("mcp_list_tools", description="List downstream MCP servers and tools (all allowed).", meta={"openai/toolInvocation/invoking": "Listing MCP tools", "openai/toolInvocation/invoked": "Listed MCP tools"}, annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
     async def mcp_list_tools(ctx: Context) -> dict[str, Any]:
+        _dbg_in("mcp_list_tools", {})
         try:
-            return await orch.list_mcp_tools()
+            result = await orch.list_mcp_tools()
+            _dbg_out("mcp_list_tools", result)
+            return result
         except Exception as exc:
+            _dbg_err("mcp_list_tools", exc)
             raise as_tool_error(exc) from exc
 
     @mcp.tool("mcp_call_tool", description="Call a downstream MCP tool (full access, no approval).", meta={"openai/toolInvocation/invoking": "Calling MCP tool", "openai/toolInvocation/invoked": "MCP tool finished"}, annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
     async def mcp_call_tool(ctx: Context, server: str, tool: str, arguments: Optional[dict] = None, annotations: Optional[dict] = None, timeoutMs: Optional[int] = None) -> dict[str, Any]:
+        _dbg_in("mcp_call_tool", {"server": server, "tool": tool, "arguments": arguments, "timeoutMs": timeoutMs})
         try:
-            return await orch.mcp_tool_call(server, tool, arguments or {}, timeoutMs)
+            result = await orch.mcp_tool_call(server, tool, arguments or {}, timeoutMs)
+            _dbg_out("mcp_call_tool", result)
+            return result
         except Exception as exc:
+            _dbg_err("mcp_call_tool", exc)
             raise as_tool_error(exc) from exc
 
     def _normalize_tool_contracts(mcp: FastMCP, settings: Settings) -> None:
