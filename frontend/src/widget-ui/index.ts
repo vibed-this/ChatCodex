@@ -1,5 +1,4 @@
 export * from "./ChoiceList";
-export * from "./ApprovalView";
 export * from "./CodeBlock";
 export * from "./DiffViewer";
 export * from "./EmptyState";

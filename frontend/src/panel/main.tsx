@@ -4,7 +4,7 @@ import {
   Archive, Bot, Check, ChevronRight, CircleHelp, Cloud, Code2,
   Copy, Download, ExternalLink, Eye, EyeOff, FileClock, Gauge, KeyRound, Layers3,
   LockKeyhole, LogOut, Menu, Moon, Network, Play, RefreshCw, Save,
-  Server, Settings2, ShieldCheck, Square, Sun, TerminalSquare, Users,
+  Server, Settings2, Square, Sun, TerminalSquare, Users,
   X, Zap,
 } from "lucide-react";
 import "../styles.css";
@@ -19,12 +19,11 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "contexts" | "tunnel" | "settings" | "approvals" | "codex";
+type Tab = "overview" | "contexts" | "tunnel" | "settings" | "codex";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "contexts", label: "执行上下文", icon: Layers3 },
   { id: "tunnel", label: "公网入口", icon: Network },
-  { id: "approvals", label: "审批", icon: ShieldCheck },
   { id: "codex", label: "Codex", icon: TerminalSquare },
   { id: "settings", label: "设置", icon: Settings2 },
 ];
@@ -68,7 +67,6 @@ function App() {
           {NAV.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => selectTab(id)} className={cn("flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors", tab === id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
               <Icon className="h-4 w-4" />{label}
-              {id === "approvals" && overview?.pendingApprovals > 0 && <Badge variant="warning" className="ml-auto px-1.5">{overview.pendingApprovals}</Badge>}
             </button>
           ))}
         </nav>
@@ -98,7 +96,6 @@ function App() {
           {tab === "contexts" && <ExecutionContexts />}
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
-          {tab === "approvals" && <Approvals />}
           {tab === "codex" && <Codex />}
         </main>
       </div>
@@ -124,7 +121,7 @@ function Login({ onSuccess, dark, setDark }: { onSuccess(): void; dark: boolean;
         <div className="relative my-auto max-w-lg">
           <Badge className="mb-5 border-white/15 bg-white/10 text-white">本地优先的智能体网关</Badge>
           <h1 className="text-5xl font-semibold leading-[1.08] tracking-tight">在 ChatGPT 中安全运行本地 Codex。</h1>
-          <p className="mt-5 max-w-md text-base leading-7 text-zinc-300">在此管理工作区、MCP 工具、审批与安全隧道。</p>
+          <p className="mt-5 max-w-md text-base leading-7 text-zinc-300">在此管理工作区、MCP 入口与安全隧道。</p>
         </div>
         <p className="relative text-xs text-zinc-500">Web Access Token 仅用于登录本控制台。</p>
       </div>
@@ -150,14 +147,13 @@ function Overview({ data, go }: { data: any; go(tab: Tab): void }) {
   if (!data) return <Loading text="正在读取 Gateway 状态" />;
   const stats = [
     { label: "活跃上下文", value: data.executionContexts?.active ?? 0, detail: `共 ${data.executionContexts?.total ?? 0} 个工作区绑定`, icon: Users, tab: "contexts" as Tab },
-    { label: "待处理审批", value: data.pendingApprovals ?? 0, detail: data.pendingApprovals ? "需要你的决策" : "队列为空", icon: ShieldCheck, tab: "approvals" as Tab },
     { label: "Codex Runtime", value: data.appserver?.running ? "在线" : "离线", detail: `重启 ${data.appserver?.restartCount ?? 0} 次`, icon: Bot, tab: "codex" as Tab },
     { label: "公网入口", value: data.publicRoute?.running ? "已启用" : "未启用", detail: data.publicRoute?.kind ?? "none", icon: Cloud, tab: "tunnel" as Tab },
   ];
   const publicEndpoint = data.publicRoute?.url?.startsWith("http") ? mcpUrl(data.publicRoute.url) : data.publicRoute?.url;
   const secureTunnel = data.chatgptTunnel?.tunnelId || data.chatgptTunnel?.url;
   return (
-    <Page title="运行概览" description="WebChat、Gateway 独立执行和审批的实时状态。">
+    <Page title="运行概览" description="WebChat、Gateway 独立执行与公网入口的实时状态。">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(({ icon: Icon, ...item }) => <Card key={item.label} className="group cursor-pointer transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md" onClick={() => go(item.tab)}><CardContent className="p-5"><div className="flex items-start justify-between"><div><p className="text-sm text-muted-foreground">{item.label}</p><p className="mt-2 text-2xl font-semibold tracking-tight">{item.value}</p></div><div className="rounded-lg bg-primary/10 p-2.5 text-primary"><Icon className="h-4 w-4" /></div></div><p className="mt-3 text-xs text-muted-foreground">{item.detail}</p></CardContent></Card>)}</div>
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_.7fr]">
         <Card><CardHeader><CardTitle>ChatGPT MCP 入口</CardTitle><CardDescription>对外提供的 MCP 接入地址。</CardDescription></CardHeader><CardContent className="space-y-3">{publicEndpoint && <CopyValue value={publicEndpoint} />}{secureTunnel && <CopyValue value={secureTunnel} />}{!publicEndpoint && !secureTunnel && <Empty icon={Network} title="尚未建立 MCP 入口" detail="配置 Cloudflare/直接暴露，或在设置中启用 ChatGPT Tunnel。" action={<Button size="sm" variant="outline" onClick={() => go("tunnel")}>配置公网入口<ChevronRight className="h-3.5 w-3.5" /></Button>} />}</CardContent></Card>
@@ -172,11 +168,11 @@ function ExecutionContexts() {
   const load = () => api.executionContexts("").then((d) => setItems(d.contexts ?? [])).catch((e) => setError(String(e)));
   useEffect(() => { load(); }, []);
   async function status(item: any, value: string) { await api.setExecutionContextStatus("", item.id, value); setSelected(null); load(); }
-  return <Page title="执行上下文" description="每个上下文把 WebChat 对话绑定到本地工作区、沙箱与审批策略。" actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5" />刷新</Button>}>
+  return <Page title="执行上下文" description="每个上下文把 WebChat 对话绑定到本地工作区与执行状态。" actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5" />刷新</Button>}>
     {error && <Alert>{error}</Alert>}
     {!items.length ? <Card><CardContent className="p-6"><Empty icon={FileClock} title="暂无执行上下文" detail="在 WebChat 工作区面板保存目录和安全设置后会显示在这里。" /></CardContent></Card> : <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card className="overflow-hidden"><div className="divide-y">{items.map((item) => <button key={item.id} onClick={() => setSelected(item)} className={cn("flex w-full items-center gap-4 p-4 text-left transition hover:bg-accent/60", selected?.id === item.id && "bg-accent")}><div className="rounded-lg bg-muted p-2"><Code2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.cwd || "未命名工作区"}</span><Badge variant={item.status === "active" ? "success" : "secondary"}>{item.status}</Badge></div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{item.conversationId}</p></div><ChevronRight className="h-4 w-4 text-muted-foreground" /></button>)}</div></Card>
-      <Card className="h-fit xl:sticky xl:top-24">{selected ? <><CardHeader className="flex-row items-start justify-between"><div><CardTitle>上下文详情</CardTitle><CardDescription className="mt-1">{selected.workMode} · {selected.sandboxMode}</CardDescription></div><Button size="icon" variant="ghost" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="space-y-4"><Details data={[["Conversation", selected.conversationId], ["目录", selected.cwd], ["工作区根", selected.workspaceRoots?.join(", ")], ["审批", typeof selected.approvalPolicy === "string" ? selected.approvalPolicy : JSON.stringify(selected.approvalPolicy)], ["Permission profile", selected.permissionProfileId || "未设置"], ["版本", selected.version], ["Codex agent", "禁用"]]} /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => status(selected, selected.status === "active" ? "archived" : "active")}><Archive className="h-3.5 w-3.5" />{selected.status === "active" ? "归档" : "恢复"}</Button></div></CardContent></> : <CardContent className="p-6"><Empty icon={CircleHelp} title="选择一个执行上下文" detail="查看工作区、安全策略和版本。" /></CardContent>}</Card>
+      <Card className="h-fit xl:sticky xl:top-24">{selected ? <><CardHeader className="flex-row items-start justify-between"><div><CardTitle>上下文详情</CardTitle><CardDescription className="mt-1">{selected.status}</CardDescription></div><Button size="icon" variant="ghost" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="space-y-4"><Details data={[["Conversation", selected.conversationId], ["目录", selected.cwd], ["工作区根", selected.workspaceRoots?.join(", ")], ["版本", selected.version], ["Codex agent", "禁用"]]} /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => status(selected, selected.status === "active" ? "archived" : "active")}><Archive className="h-3.5 w-3.5" />{selected.status === "active" ? "归档" : "恢复"}</Button></div></CardContent></> : <CardContent className="p-6"><Empty icon={CircleHelp} title="选择一个执行上下文" detail="查看工作区与执行版本。" /></CardContent>}</Card>
     </div>}
   </Page>;
 }
@@ -260,7 +256,7 @@ function ChatGptMcpTunnel({ cfg, set }: { cfg: Record<string, any>; set(key: str
     try { await api.installTunnelClient("", cfg.tunnel_client_release || "v0.0.11-dev"); await load(); }
     catch (e) { setError(String(e)); } finally { setDownloading(false); }
   }
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" />ChatGPT Tunnel · MCP</CardTitle><CardDescription>仅把 `/mcp/` 提供给 ChatGPT，不作为全局公网入口。</CardDescription></CardHeader><CardContent className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Tunnel ID" hint="OpenAI 控制平面的 tunnel_… 标识。"><Input value={cfg.chatgpt_tunnel_id ?? ""} onChange={(e) => set("chatgpt_tunnel_id", e.target.value)} placeholder="tunnel_…" /></Field><Field label="Runtime API Key" hint="仅保留在当前进程；自动启动请用 CONTROL_PLANE_API_KEY。"><SecretInput value={apiKey} setValue={setApiKey} placeholder="sk-…" /></Field><Field label="tunnel-client 版本"><Input value={cfg.tunnel_client_release ?? "v0.0.11-dev"} onChange={(e) => set("tunnel_client_release", e.target.value)} className="font-mono text-xs" /></Field><div className="flex items-end"><Button variant="outline" onClick={download} disabled={downloading}>{downloading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 / 更新客户端</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>随 Gateway 自动启动</Label><p className="mt-1 text-xs text-muted-foreground">需要环境变量中的 Runtime API Key</p></div><Switch checked={cfg.chatgpt_tunnel_enabled ?? false} onCheckedChange={(v) => set("chatgpt_tunnel_enabled", v)} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>异常自动重启</Label><p className="mt-1 text-xs text-muted-foreground">独立线程与有界退避</p></div><Switch checked={cfg.tunnel_auto_restart ?? true} onCheckedChange={(v) => set("tunnel_auto_restart", v)} /></div></div>{oauthMode ? (oauthBlocked ? <Alert tone="warning">OAuth 需要先把全局公网 URL 配成可公开访问的 HTTPS 地址。</Alert> : <Alert>OAuth 授权服务器地址 {issuer} 必须能被 ChatGPT 公开访问。</Alert>) : <Alert>Token 模式下 MCP Access Token 只用于本机私有连接，不提供给 ChatGPT。</Alert>}{error && <Alert>{error}</Alert>}<div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-3"><Badge variant={state?.ready ? "success" : state?.running ? "warning" : "secondary"}>{state?.ready ? "已就绪" : state?.running ? "启动中" : "已停止"}</Badge><span className="text-xs text-muted-foreground">PID {state?.pid || "—"} · {state?.detail || "未启动"}</span><div className="ml-auto flex gap-2"><Button size="sm" onClick={start} disabled={busy || oauthBlocked}>{busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}启动</Button><Button size="sm" variant="outline" onClick={stop} disabled={busy}><Square className="h-3.5 w-3.5" />停止</Button></div></div>{state?.kind === "chatgpt" && <div className="mt-3 grid grid-cols-3 gap-2"><MiniStatus label="进程" on={state.running} /><MiniStatus label="健康" on={state.healthy} /><MiniStatus label="就绪" on={state.ready} /></div>}{state?.logs?.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-medium">最近日志</summary><pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-muted-foreground">{state.logs.join("\n")}</pre></details>}</div></CardContent></Card>;
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="h-4 w-4 text-primary" />ChatGPT Tunnel · MCP</CardTitle><CardDescription>仅把 `/mcp/` 提供给 ChatGPT，不作为全局公网入口。</CardDescription></CardHeader><CardContent className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Tunnel ID" hint="OpenAI 控制平面的 tunnel_… 标识。"><Input value={cfg.chatgpt_tunnel_id ?? ""} onChange={(e) => set("chatgpt_tunnel_id", e.target.value)} placeholder="tunnel_…" /></Field><Field label="Runtime API Key" hint="仅保留在当前进程；自动启动请用 CONTROL_PLANE_API_KEY。"><SecretInput value={apiKey} setValue={setApiKey} placeholder="sk-…" /></Field><Field label="tunnel-client 版本"><Input value={cfg.tunnel_client_release ?? "v0.0.11-dev"} onChange={(e) => set("tunnel_client_release", e.target.value)} className="font-mono text-xs" /></Field><div className="flex items-end"><Button variant="outline" onClick={download} disabled={downloading}>{downloading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 / 更新客户端</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>随 Gateway 自动启动</Label><p className="mt-1 text-xs text-muted-foreground">需要环境变量中的 Runtime API Key</p></div><Switch checked={cfg.chatgpt_tunnel_enabled ?? false} onCheckedChange={(v) => set("chatgpt_tunnel_enabled", v)} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>异常自动重启</Label><p className="mt-1 text-xs text-muted-foreground">独立线程与有界退避</p></div><Switch checked={cfg.tunnel_auto_restart ?? true} onCheckedChange={(v) => set("tunnel_auto_restart", v)} /></div></div>{oauthMode ? (oauthBlocked ? <Alert tone="warning">OAuth 需要先把全局公网 URL 配成可公开访问的 HTTPS 地址。</Alert> : <Alert>OAuth 授权服务器地址 {issuer} 必须能被 ChatGPT 公开访问。</Alert>) : <Alert>Token 模式下 MCP Access Token 只用于本机私有连接，不提供给 ChatGPT。</Alert>}{error && <Alert>{error}</Alert>}<div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-3"><Badge variant={state?.ready ? "success" : state?.running ? "warning" : "secondary"}>{state?.ready ? "已就绪" : state?.running ? "启动中" : "已停止"}</Badge><span className="text-xs text-muted-foreground">PID {state?.pid || "—"} · {state?.detail || "未启动"}</span><div className="ml-auto flex gap-2"><Button size="sm" onClick={start} disabled={busy || oauthBlocked}>{busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}启动</Button><Button size="sm" variant="outline" onClick={stop} disabled={busy}><Square className="h-3.5 w-3.5" />停止</Button></div></div>{state?.kind === "chatgpt" && <div className="mt-3 grid grid-cols-3 gap-2"><MiniStatus label="进程" on={state.running} /><MiniStatus label="健康" on={state.healthy} /><MiniStatus label="就绪" on={state.ready} /></div>}{state?.logs?.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-medium">最近日志</summary><pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-muted-foreground">{state.logs.join("\n")}</pre></details>}</div></CardContent></Card>;
 }
 
 function Settings() {
@@ -268,7 +264,7 @@ function Settings() {
   useEffect(() => { api.settings("").then((d) => setCfg(d.settings ?? {})); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); }, []);
   const set = (key: string, value: any) => { setCfg((now) => ({ ...now, [key]: value })); setSaved(false); };
   async function save() { setSaving(true); setError(""); const payload = { ...cfg }; for (const key of ["web_access_token", "mcp_access_token", "oauth_password", "codex_external_ws_key", "codex_internal_ws_key"]) if (!payload[key] || payload[key] === "********") delete payload[key]; try { const result = await api.setSettings("", payload); setCfg(result.settings ?? cfg); setSaved(true); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); } catch (e) { setError(String(e)); } finally { setSaving(false); } }
-  return <Page title="Gateway 设置" description="认证、安全策略、Codex Runtime 与模型工具曝光范围。" actions={<Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button>}>
+  return <Page title="Gateway 设置" description="认证、连接方式与 Codex Runtime 配置。" actions={<Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button>}>
     {error && <Alert>{error}</Alert>}
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-6">
@@ -289,111 +285,12 @@ function Settings() {
             </>}
             <div className="flex items-center justify-between rounded-lg border p-3"><div><Label>崩溃自动重启</Label><p className="mt-1 text-xs text-muted-foreground">异常退出后自动恢复</p></div><Switch checked={cfg.codex_auto_restart ?? true} onCheckedChange={(v) => set("codex_auto_restart", v)} /></div>
             <Alert>Codex agent / thread 已禁用，仅执行独立 RPC。</Alert>
-            <Field label="审批请求策略"><SimpleSelect value={cfg.approval_policy ?? "on-request"} onChange={(v) => set("approval_policy", v)} items={[["untrusted", "严格请求"], ["on-request", "按需请求"], ["never", "从不请求"]]} /></Field>
-            <Field label="默认系统访问"><SimpleSelect value={cfg.sandbox ?? "workspace-write"} onChange={(v) => set("sandbox", v)} items={[["read-only", "只读"], ["workspace-write", "工作区可写"], ["danger-full-access", "完全访问"]]} /></Field>
-            <Field label="审批等待（毫秒）" hint="默认 300000（5 分钟）。"><Input type="number" min={1000} max={3600000} step={1000} value={cfg.approval_timeout_ms ?? 300000} onChange={(e) => set("approval_timeout_ms", Number(e.target.value))} /></Field>
           </CardContent>
         </Card>
-        <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="h-4 w-4 text-primary" />App Server 工具边界</CardTitle><CardDescription className="mt-1">Gateway 只暴露登记过的独立执行工具。</CardDescription></CardHeader><CardContent><Alert>未知副作用操作默认禁止，需经统一审批。</Alert></CardContent></Card>
-        <McpTools />
       </div>
       <div className="space-y-4 xl:sticky xl:top-24 xl:h-fit"><Card><CardHeader><CardTitle>OAuth Metadata 自检</CardTitle><CardDescription>检查当前运行实例的 OAuth 配置是否完整。</CardDescription></CardHeader><CardContent className="space-y-3"><Badge variant={audit?.complete ? "success" : audit?.enabled ? "warning" : "secondary"}>{audit?.complete ? "配置完整" : audit?.enabled ? "需要修复" : "OAuth 未启用"}</Badge>{audit?.issues?.map((issue: string) => <p key={issue} className="text-xs leading-5 text-destructive">{issue}</p>)}</CardContent></Card><Alert tone="warning">认证类改动需重启 Gateway 才会生效；修改 Web Token 后需重新登录。</Alert></div>
     </div>
   </Page>;
-}
-
-function McpTools() {
-  const [data, setData] = useState<any>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
-  const [openServers, setOpenServers] = useState<Record<string, boolean>>({});
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const load = () => api.mcpTools("").then(setData).catch((e) => setError(String(e)));
-  useEffect(() => { load(); }, []);
-  async function setPolicy(key: string, value: string) {
-    setBusy(key); setError("");
-    try { await api.setMcpToolPolicy("", { [key]: value }); await load(); }
-    catch (e) { setError(String(e)); } finally { setBusy(""); }
-  }
-  async function setGroupPolicy(server: string, tools: any[], value: string) {
-    setBusy(`${server}/*`); setError("");
-    const policies: Record<string, string> = {};
-    for (const tool of tools) policies[`${server}/${tool.name}`] = value;
-    try { await api.setMcpToolPolicy("", policies); await load(); }
-    catch (e) { setError(String(e)); } finally { setBusy(""); }
-  }
-  const servers = data?.servers ?? [];
-  const total = servers.reduce((n: number, s: any) => n + (s.tools?.length ?? 0), 0);
-  const prefixOf = (name: string) => { const i = name.indexOf("."); return i > 0 ? name.slice(0, i) : ""; };
-  const groupOf = (server: any) => {
-    const byPrefix = new Map<string, any[]>();
-    for (const tool of server.tools ?? []) {
-      const prefix = prefixOf(tool.name);
-      if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
-      byPrefix.get(prefix)!.push(tool);
-    }
-    // Only split into prefix groups when there's more than one meaningful prefix;
-    // a single/prefix-less server renders as one flat group.
-    const entries = [...byPrefix.entries()];
-    const meaningful = entries.filter(([p]) => p !== "");
-    return entries.length > 1 && meaningful.length > 0 ? entries : [["", server.tools ?? []]];
-  };
-  const toolRow = (server: any, tool: any) => {
-    const key = `${server.name}/${tool.name}`;
-    const policy = tool.policy ?? "deny";
-    return <div key={key} className="flex items-center gap-3 px-3 py-2"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate font-mono text-xs">{tool.name}</span>{tool.readOnly ? <Badge variant="success">只读</Badge> : <Badge variant="warning">副作用</Badge>}</div>{tool.description && <p className="mt-0.5 truncate text-xs text-muted-foreground">{tool.description}</p>}</div><div className="flex shrink-0 gap-1">{[["allow", "允许"], ["ask", "需审批"], ["deny", "禁止"]].map(([value, label]) => <button key={value} disabled={busy === key} onClick={() => setPolicy(key, value)} className={cn("rounded-md border px-2 py-1 text-xs transition", policy === value ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}>{label}</button>)}</div></div>;
-  };
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="h-4 w-4 text-primary" />下游 MCP 工具</CardTitle><CardDescription>选择哪些下游 MCP 工具暴露给 WebChat。未列出的工具默认禁止；只读工具可直接运行，有副作用的一律需一次性审批。</CardDescription></CardHeader><CardContent className="space-y-3">
-    {error && <Alert>{error}</Alert>}
-    {!data ? <Loading text="正在读取 MCP 工具" /> : servers.length === 0 ? <Empty icon={Network} title="没有可用的下游 MCP 工具" detail="在 Codex 配置里登记下游 MCP server 后，这里会列出它们提供的工具。" /> : <>
-      <p className="text-xs text-muted-foreground">{servers.length} 个 server · {total} 个工具</p>
-      {servers.map((server: any) => {
-        const serverOpen = openServers[server.name] ?? (server.tools?.length ?? 0) <= 10;
-        const sideEffects = (server.tools ?? []).filter((t: any) => !t.readOnly).length;
-        return <div key={server.name} className="rounded-lg border">
-          <button type="button" onClick={() => setOpenServers((now) => ({ ...now, [server.name]: !serverOpen }))} className="flex w-full items-center gap-2 border-b bg-muted/40 px-3 py-2 text-left">
-            <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", serverOpen && "rotate-90")} />
-            <span className="text-sm font-medium">{server.name}</span>
-            <span className="ml-auto text-xs text-muted-foreground">{server.tools?.length ?? 0} 个工具{sideEffects > 0 ? ` · ${sideEffects} 副作用` : ""}</span>
-          </button>
-          {serverOpen && <div>{groupOf(server).map(([prefix, tools]) => {
-            const groupKey = `${server.name}::${prefix}`;
-            const groupOpen = openGroups[groupKey] ?? ((server.tools?.length ?? 0) <= 10 || prefix === "");
-            const sideCount = tools.filter((t: any) => !t.readOnly).length;
-            return <div key={groupKey} className="border-b last:border-b-0">
-              {prefix !== "" && <div className="flex items-center gap-2 bg-muted/20 px-3 py-1.5">
-                <button type="button" onClick={() => setOpenGroups((now) => ({ ...now, [groupKey]: !groupOpen }))} className="flex items-center gap-2 text-left">
-                  <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", groupOpen && "rotate-90")} />
-                  <span className="font-mono text-xs font-medium">{prefix}.*</span>
-                  <span className="text-[11px] text-muted-foreground">{tools.length}{sideCount > 0 ? ` · ${sideCount} 副作用` : ""}</span>
-                </button>
-                <div className="ml-auto flex gap-1">{[["allow", "全允许"], ["deny", "全禁止"]].map(([value, label]) => <button key={value} disabled={busy === `${server}/*`} onClick={() => setGroupPolicy(server.name, tools, value)} className="rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-accent">{label}</button>)}</div>
-              </div>}
-              {groupOpen && <div className="divide-y">{tools.map((tool: any) => toolRow(server, tool))}</div>}
-            </div>;
-          })}</div>}
-        </div>;
-      })}
-    </>}
-  </CardContent></Card>;
-}
-
-function Approvals() {  const [items, setItems] = useState<any[]>([]); const load = () => api.approvals("").then((d) => setItems(d.pending ?? [])).catch(() => {});
-  useEffect(() => {
-    load();
-    const stream = new EventSource(api.eventStreamUrl("*"), { withCredentials: true });
-    const refresh = () => load();
-    for (const name of ["approval.created", "approval.updated", "approval.resolved", "operation.completed", "operation.failed"]) {
-      stream.addEventListener(name, refresh);
-    }
-    const fallback = setInterval(load, 30000);
-    return () => { stream.close(); clearInterval(fallback); };
-  }, []);
-  async function reply(item: any, decision: string) {
-    await api.resolveApproval("", item.requestId, decision, item.version, item.conversationId);
-    load();
-  }
-  return <Page title="审批队列" description="处理需要授权的操作。">{!items.length ? <Card><CardContent className="p-6"><Empty icon={ShieldCheck} title="审批队列为空" detail="需要决策的操作会通过实时事件流出现在这里。" /></CardContent></Card> : <div className="grid gap-4 lg:grid-cols-2">{items.map((item) => <Card key={item.requestId}><CardHeader><div className="flex items-center gap-2"><Badge variant="warning">{item.kind}</Badge><Badge variant="secondary">{item.source === "appserver" ? "App Server 原生" : "Gateway 补位"}</Badge><span className="text-xs text-muted-foreground">{item.method}</span></div><CardTitle className="mt-3">{item.source === "appserver" ? "App Server 请求授权" : "独立操作请求授权"}</CardTitle><CardDescription>{item.conversationId} · v{item.version}</CardDescription></CardHeader><CardContent><pre className="max-h-52 overflow-auto rounded-lg bg-muted p-3 text-xs leading-5">{JSON.stringify(item.params, null, 2).slice(0, 2000)}</pre><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" onClick={() => reply(item, item.source === "appserver" ? "accept" : "approve_once")}>允许一次</Button>{item.availableDecisions?.includes("acceptForSession") && <Button size="sm" variant="outline" onClick={() => reply(item, "acceptForSession")}>本会话允许</Button>}<Button size="sm" variant="ghost" className="text-destructive" onClick={() => reply(item, "decline")}>拒绝</Button></div></CardContent></Card>)}</div>}</Page>;
 }
 
 function Codex() {

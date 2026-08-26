@@ -1,119 +1,47 @@
 """ChatCodex Gateway - 全新项目，全量放开。"""
 from __future__ import annotations
 
-import atexit
 import asyncio
 from dataclasses import replace
 import hmac
 import json
 import re
-import secrets
 from contextlib import asynccontextmanager
 from typing import Optional
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
-from .appserver import AppServerManager
-from .approval import ApprovalBridge
-from .config import Settings, load_settings
-from .db import Database
-from .events import EventBroker
-from .execution import ExecutionOrchestrator
-from .mcp_server import build_mcp
-from .oauth import Authenticator, Principal, WebAuthenticator
+from .config import Settings
+from .oauth import Principal
 from .oauth import is_chatgpt_connector_callback
-from .native import NativeRuntimeManager, NativeRuntimeError
-from .settings_store import SettingsStore
-from .tunnel import TunnelManager
+from .native import NativeRuntimeError
+from .runtime import create_runtime
 
-settings = load_settings()
-db = Database(settings)
-atexit.register(db.close)
-settings_store = SettingsStore(db)
-native = NativeRuntimeManager(settings.native_dir)
-
-
-def _runtime(key: str, env_fallback):
-    v = settings_store.get_override(key)
-    if v is None or v == "":
-        return env_fallback
-    return v
-
-
-_web_access_token = _runtime("web_access_token", settings.web_access_token)
-_mcp_access_token = _runtime("mcp_access_token", settings.mcp_access_token)
-_mcp_auth_mode = _runtime("mcp_auth_mode", settings.mcp_auth_mode)
-_mcp_auth_mode = {"bearer": "token"}.get(str(_mcp_auth_mode), str(_mcp_auth_mode))
-if _mcp_auth_mode not in {"token", "oauth", "both", "noauth"}:
-    raise RuntimeError("CHATCODEX_MCP_AUTH_MODE must be token, oauth, both, or noauth")
-
-if not _web_access_token:
-    _web_access_token = secrets.token_urlsafe(24)
-    settings_store.set("web_access_token", _web_access_token)
-    _GENERATED_WEB_TOKEN = True
-else:
-    _GENERATED_WEB_TOKEN = False
-if not _mcp_access_token:
-    _mcp_access_token = secrets.token_urlsafe(24)
-    settings_store.set("mcp_access_token", _mcp_access_token)
-    _GENERATED_MCP_TOKEN = True
-else:
-    _GENERATED_MCP_TOKEN = False
-
-_internal_ws_key = _runtime("codex_internal_ws_key", settings.codex_internal_ws_key)
-if not _internal_ws_key:
-    _internal_ws_key = secrets.token_urlsafe(48)
-    settings_store.set("codex_internal_ws_key", _internal_ws_key)
-
-_oauth_token_secret = _runtime("oauth_token_secret", settings.oauth_token_secret)
-if not _oauth_token_secret or _oauth_token_secret == "dev-secret-change-me":
-    _oauth_token_secret = secrets.token_urlsafe(48)
-    settings_store.set("oauth_token_secret", _oauth_token_secret)
-_oauth_password = _runtime("oauth_password", settings.oauth_password) or _web_access_token
+runtime = None
+settings = Settings()
+db = None
+settings_store = None
+native = None
+auth = None
+web_auth = None
+appserver = None
+tunnels = None
+events = None
+approval = None
+orch = None
+mcp = None
+_GENERATED_WEB_TOKEN = False
+_GENERATED_MCP_TOKEN = False
 
 _PUBLIC_ROUTE_KINDS = {"direct", "cloudflared-try", "cloudflared-named"}
 _PUBLIC_ROUTE_INSTANCE = "public-route"
 _CHATGPT_MCP_INSTANCE = "chatgpt-mcp"
-_configured_route = settings_store.get_override("public_route_kind")
-_public_route_kind = _configured_route if _configured_route in _PUBLIC_ROUTE_KINDS else settings.public_route_kind if settings.public_route_kind in _PUBLIC_ROUTE_KINDS else ""
-_public_url = str(_runtime("public_url", settings.public_url)).rstrip("/")
-
-settings = Settings(**{**settings.__dict__,
-                       "web_access_token": _web_access_token,
-                       "mcp_auth_mode": _mcp_auth_mode,
-                       "mcp_access_token": _mcp_access_token,
-                       "oauth_token_secret": _oauth_token_secret,
-                       "oauth_password": _oauth_password,
-                       "oauth_callback_protection": bool(_runtime("oauth_callback_protection", settings.oauth_callback_protection)),
-                       "public_url": _public_url,
-                       "public_route_kind": _public_route_kind,
-                       "tunnel_kind": _public_route_kind,
-                       "chatgpt_tunnel_enabled": bool(_runtime("chatgpt_tunnel_enabled", settings.chatgpt_tunnel_enabled)),
-                       "chatgpt_tunnel_id": _runtime("chatgpt_tunnel_id", settings.chatgpt_tunnel_id),
-                       "codex_app_mode": _runtime("codex_app_mode", settings.codex_app_mode),
-                       "codex_command": _runtime("codex_command", settings.codex_command),
-                       "codex_external_ws_url": _runtime("codex_external_ws_url", settings.codex_external_ws_url),
-                       "codex_external_ws_key": _runtime("codex_external_ws_key", settings.codex_external_ws_key),
-                       "codex_internal_ws_key": _internal_ws_key,
-                       "codex_release_repo": _runtime("codex_release_repo", settings.codex_release_repo),
-                       "codex_download_url": _runtime("codex_download_url", settings.codex_download_url),
-                       "tunnel_client_command": _runtime("tunnel_client_command", settings.tunnel_client_command),
-                       "tunnel_client_release": _runtime("tunnel_client_release", settings.tunnel_client_release),
-                       "tunnel_auto_restart": bool(_runtime("tunnel_auto_restart", settings.tunnel_auto_restart))})
-auth = Authenticator(settings, db=db)
-web_auth = WebAuthenticator(settings.web_access_token)
-appserver = AppServerManager(settings, port=int(_runtime("codex_ws_port", settings.codex_ws_port)), auto_restart=bool(_runtime("codex_auto_restart", True)), native=native)
-tunnels = TunnelManager(settings, native=native)
-
-events = EventBroker()
-approval = ApprovalBridge(appserver, db, events=events)
-orch = ExecutionOrchestrator(settings, appserver)
-mcp = build_mcp(settings, orch, approval, auth)
 
 
 def _reset_codex_runtime() -> None:
-    approval.cancel_pending()
+    if approval is not None:
+        approval.cancel_pending()
 
 class _ReloadableAsgi:
     def __init__(self, target):
@@ -123,7 +51,12 @@ class _ReloadableAsgi:
     async def __call__(self, scope, receive, send):
         await self.target(scope, receive, send)
 
-_mcp_asgi = _ReloadableAsgi(mcp.streamable_http_app())
+async def _mcp_unavailable(scope, receive, send):
+    if scope.get("type") == "http":
+        await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
+        await send({"type": "http.response.body", "body": b"MCP runtime is not initialized"})
+
+_mcp_asgi = _ReloadableAsgi(_mcp_unavailable)
 
 
 def _valid_runtime_public_root(public_url: str, *, https_required: bool) -> bool:
@@ -142,6 +75,8 @@ def _replace_runtime_public_url(public_url: str, *, https_required: bool) -> boo
     base = str(public_url or "").rstrip("/")
     if not _valid_runtime_public_root(base, https_required=https_required):
         return False
+    if auth is None or mcp is None:
+        return False
     if auth.public_url == base:
         return True
     auth.set_public_url(base)
@@ -157,11 +92,29 @@ def _activate_tunnel_public_url(public_url: str) -> None:
     if not _replace_runtime_public_url(public_url, https_required=True):
         raise ValueError("tunnel public URL must be a public HTTPS root URL")
 
-tunnels.on_public_url = _activate_tunnel_public_url
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global runtime, settings, db, settings_store, native, auth, web_auth, appserver, tunnels, events, approval, orch, mcp, _GENERATED_WEB_TOKEN, _GENERATED_MCP_TOKEN
+    runtime = create_runtime()
+    settings = runtime.settings
+    db = runtime.db
+    settings_store = runtime.settings_store
+    native = runtime.native
+    auth = runtime.auth
+    web_auth = runtime.web_auth
+    appserver = runtime.appserver
+    tunnels = runtime.tunnels
+    events = runtime.events
+    approval = runtime.approval
+    orch = runtime.execution
+    mcp = runtime.mcp
+    tunnels.on_public_url = _activate_tunnel_public_url
+    _GENERATED_WEB_TOKEN = runtime.generated_web_token
+    _GENERATED_MCP_TOKEN = runtime.generated_mcp_token
+    _mcp_asgi.replace(mcp.streamable_http_app())
+
     async def on_server_request(msg: dict) -> dict:
         return await approval.handle(msg)
     appserver.on_server_request(on_server_request)
@@ -180,7 +133,7 @@ async def lifespan(app: FastAPI):
     finally:
         await tunnels.stop()
         await appserver.stop()
-        db.close()
+        runtime.close()
 
 
 async def _autostart_transports() -> None:
@@ -373,7 +326,17 @@ _CONSENT_HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8><meta 
 def _consent_page(client_id, scope, hidden, need_password, error=""):
     import html
     pf = ('<label for=pw>访问密码</label><input id=pw type=password name=password placeholder="输入访问密码" required autofocus>') if need_password else ""
-    return _CONSENT_HTML.format(client=html.escape(str(client_id)), scope=html.escape(str(scope)), hidden=hidden, password_field=pf, error=html.escape(str(error)))
+    page = _CONSENT_HTML
+    replacements = {
+        "{client}": html.escape(str(client_id)),
+        "{scope}": html.escape(str(scope)),
+        "{hidden}": hidden,
+        "{password_field}": pf,
+        "{error}": html.escape(str(error)),
+    }
+    for marker, value in replacements.items():
+        page = page.replace(marker, value)
+    return page
 
 def _oauth_redirect_origin(redirect_uri: str) -> str:
     try:
@@ -537,7 +500,7 @@ async def event_stream(request: Request, conversationId: str, lastEventId: int =
         after_id = max(lastEventId, 0)
     async def stream():
         nonlocal after_id
-        capabilities = {"eventId": after_id, "conversationId": conversationId, "capabilities": orch.router.capabilities()}
+        capabilities = {"eventId": after_id, "conversationId": conversationId, "capabilities": orch.capabilities()}
         yield f"event: runtime.capabilities\ndata: {json.dumps(capabilities, ensure_ascii=False)}\n\n"
         while not await request.is_disconnected():
             delivered = False
@@ -553,7 +516,7 @@ async def event_stream(request: Request, conversationId: str, lastEventId: int =
 
 @app.get("/api/appserver/status")
 async def appserver_status(p: Principal = Depends(principal)):
-    return {**appserver.status(), "executionCapabilities": orch.router.capabilities()}
+    return {**appserver.status(), "executionCapabilities": orch.capabilities()}
 
 @app.post("/api/appserver/restart")
 async def appserver_restart(p: Principal = Depends(principal)):
@@ -579,7 +542,6 @@ async def native_codex_install(request: Request, p: Principal = Depends(principa
         settings_store.set("codex_command", result["codexCommand"])
         appserver.settings = replace(appserver.settings, codex_command=result["codexCommand"])
         orch.settings = appserver.settings
-        orch.router.settings = appserver.settings
         return result
     except NativeRuntimeError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -597,7 +559,7 @@ async def native_tunnel_install(request: Request, p: Principal = Depends(princip
 
 @app.get("/api/overview")
 async def overview(p: Principal = Depends(principal)):
-    return {"appserver": appserver.status(), "publicRoute": tunnels.status(_PUBLIC_ROUTE_INSTANCE), "chatgptTunnel": tunnels.status(_CHATGPT_MCP_INSTANCE), "pendingApprovals": len(approval.list_pending()), "executionCapabilities": orch.router.capabilities(), "auth": {"web": "token", "mcp": settings.mcp_auth_mode}}
+    return {"appserver": appserver.status(), "publicRoute": tunnels.status(_PUBLIC_ROUTE_INSTANCE), "chatgptTunnel": tunnels.status(_CHATGPT_MCP_INSTANCE), "pendingApprovals": len(approval.list_pending()), "executionCapabilities": orch.capabilities(), "auth": {"web": "token", "mcp": settings.mcp_auth_mode}}
 
 @app.get("/api/settings")
 async def get_settings(p: Principal = Depends(principal)):
@@ -651,7 +613,6 @@ async def set_settings(request: Request, p: Principal = Depends(principal)):
         runtime = replace(appserver.settings, codex_command=updated.get("codex_command") or settings.codex_command, codex_app_mode=updated.get("codex_app_mode") or settings.codex_app_mode, codex_external_ws_url=(updated.get("codex_external_ws_url") or settings.codex_external_ws_url), codex_external_ws_key=(updated.get("codex_external_ws_key") or settings.codex_external_ws_key), codex_release_repo=(updated.get("codex_release_repo") or settings.codex_release_repo), codex_download_url=(updated.get("codex_download_url") or settings.codex_download_url), tunnel_client_command=(updated.get("tunnel_client_command") or settings.tunnel_client_command), tunnel_client_release=(updated.get("tunnel_client_release") or settings.tunnel_client_release), tunnel_auto_restart=bool(updated.get("tunnel_auto_restart", True)), chatgpt_tunnel_enabled=bool(updated.get("chatgpt_tunnel_enabled", False)), chatgpt_tunnel_id=(updated.get("chatgpt_tunnel_id") or settings.chatgpt_tunnel_id), public_route_kind=(updated.get("public_route_kind") or ""), tunnel_kind=(updated.get("public_route_kind") or ""))
         appserver.settings = runtime
         orch.settings = runtime
-        orch.router.settings = runtime
         tunnels.settings = runtime
     if "codex_ws_port" in body:
         appserver.port = int(updated["codex_ws_port"])
@@ -736,7 +697,9 @@ async def chatgpt_tunnel_stop(p: Principal = Depends(principal)):
 
 def main() -> None:
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=False, log_level="info")
+    from .config import load_settings
+    launch_settings = settings if runtime is not None else load_settings()
+    uvicorn.run("app.main:app", host=launch_settings.host, port=launch_settings.port, reload=False, log_level="info")
 
 
 if __name__ == "__main__":

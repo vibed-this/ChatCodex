@@ -191,10 +191,11 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         base, "/oauth/authorize?" + urllib.parse.urlencode(params))
     checks["oauth_consent_page"] = 200 if (
         status == 200
-        and "form-action 'self' http://localhost;"
+        and "form-action 'self' http://localhost"
         in (headers.get("Content-Security-Policy")
             or headers.get("content-security-policy") or "")
     ) else 0
+
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):

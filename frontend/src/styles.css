@@ -816,66 +816,9 @@ button {
   flex: 1;
 }
 
-.approval-view {
-  display: grid;
-  gap: 1rem;
-}
-
-.approval-view .widget-section + .widget-section {
-  margin-top: 0;
-}
-
-.approval-facts,
 .inspector-facts {
   border-top: var(--ui-hairline) solid var(--ui-border);
 }
-
-.approval-permissions {
-  border-top: var(--ui-hairline) solid var(--ui-border);
-}
-
-.approval-permission {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: start;
-  gap: 0.5rem;
-  padding: 0.625rem 0;
-  border-bottom: var(--ui-hairline) solid var(--ui-border);
-}
-
-.approval-permission > input {
-  width: 1rem;
-  height: 1rem;
-  margin: 0.125rem 0 0;
-}
-
-.approval-permission-icon,
-.approval-permission-icon > svg {
-  width: 0.875rem;
-  height: 0.875rem;
-  color: var(--ui-text-secondary);
-}
-
-.approval-permission > span:last-child,
-.approval-permission strong,
-.approval-permission small {
-  display: block;
-  min-width: 0;
-}
-
-.approval-permission strong {
-  font-size: 0.8125rem;
-  font-weight: 500;
-}
-
-.approval-permission small {
-  margin-top: 0.125rem;
-  color: var(--ui-text-secondary);
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-
-.approval-fact,
 .inspector-fact {
   display: grid;
   min-width: 0;
@@ -884,31 +827,6 @@ button {
   gap: 0.5rem;
   padding: 0.5rem 0;
   border-bottom: var(--ui-hairline) solid var(--ui-border);
-  font-size: 0.75rem;
-}
-
-.approval-fact > span:first-child svg {
-  width: 0.875rem;
-  height: 0.875rem;
-}
-
-.approval-fact > strong {
-  font-weight: 500;
-}
-
-.approval-fact > span:last-child {
-  min-width: 0;
-  color: var(--ui-text-secondary);
-  overflow-wrap: anywhere;
-}
-
-.sensitive-details,
-.remember-decision {
-  margin-top: 0.625rem;
-}
-
-.sensitive-details {
-  color: var(--ui-text-secondary);
   font-size: 0.75rem;
 }
 
@@ -1131,14 +1049,6 @@ details.inspector-fact > code {
   .question-field > .widget-input {
     width: 100%;
     margin-left: 0;
-  }
-
-  .approval-fact {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .approval-fact > span:last-child {
-    grid-column: 2;
   }
 
   .diff-toolbar {

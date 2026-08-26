@@ -9,7 +9,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
-from .db import Database
+from .persistence.database import Database
+from .persistence.audit import AuditRepository
 from .events import EventBroker
 
 
@@ -98,6 +99,7 @@ class ApprovalBridge:
     ):
         self.appserver = appserver
         self.db = db
+        self.audit = AuditRepository(db)
         self.on_pending = on_pending
         self.events = events
         self.default_timeout = max(
@@ -480,44 +482,22 @@ class ApprovalBridge:
 
     def _audit(self, pending: PendingRequest, decision: Optional[dict]) -> None:
         try:
-            with self.db.conn() as connection:
-                if decision is None:
-                    connection.execute(
-                        """INSERT OR REPLACE INTO approval_audit
-                           (id,conversation_id,operation_id,source,state,kind,
-                            request_id,summary,payload,decision,decided_by,
-                            action_digest,context_version,request_version,
-                            created_at,decided_at)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            pending.audit_id, pending.conversation_id,
-                            pending.operation_id, pending.source, pending.state,
-                            pending.kind,
-                            pending.request_id, _summarize(pending),
-                            json.dumps(
-                                _redact_params(pending.params),
-                                ensure_ascii=False,
-                            ),
-                            None, None, pending.action_digest,
-                            pending.context_version, pending.version,
-                            int(pending.created_at), None,
-                        ),
-                    )
-                else:
-                    connection.execute(
-                        """UPDATE approval_audit
-                           SET decision=?,decided_by=?,decided_at=?,state=?,
-                               request_version=? WHERE id=?""",
-                        (
-                            json.dumps(
-                                _redact_decision(decision), ensure_ascii=False
-                            ),
-                            pending.decided_by, int(time.time()), pending.state,
-                            pending.version, pending.audit_id,
-                        ),
-                    )
+            if decision is None:
+                self.audit.record_pending(
+                    audit_id=pending.audit_id, conversation_id=pending.conversation_id,
+                    operation_id=pending.operation_id, source=pending.source,
+                    state=pending.state, kind=pending.kind, request_id=pending.request_id,
+                    summary=_summarize(pending), payload=_redact_params(pending.params),
+                    action_digest=pending.action_digest, context_version=pending.context_version,
+                    request_version=pending.version, created_at=pending.created_at,
+                )
+            else:
+                self.audit.record_decision(
+                    audit_id=pending.audit_id, decision=_redact_decision(decision),
+                    decided_by=pending.decided_by, state=pending.state, request_version=pending.version,
+                )
         except Exception:
-            pass
+            return
 
 
 def _summarize(pending: PendingRequest) -> str:

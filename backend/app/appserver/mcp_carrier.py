@@ -1,6 +1,6 @@
 """空闲 ephemeral Codex thread 作为 MCP 转发载体。
 
-每个 ExecutionContext 懒建一个 ``ephemeral`` thread(绝不调 ``turn/start``),
+每个会话键懒建一个 ``ephemeral`` thread(绝不调 ``turn/start``),
 仅作为 ``mcpServerStatus/list`` 与 ``mcpServer/tool/call`` 的宿主。它不启动
 任何模型循环;模型推理只在官方 ``turn/start`` 触发,而本模块从不调用它。
 
@@ -13,7 +13,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class McpCarrier:
@@ -70,8 +73,8 @@ class McpCarrier:
             try:
                 await self.appserver.call(
                     "thread/archive", {"threadId": thread_id}, timeout=5)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("failed to archive MCP carrier thread %s: %s", thread_id, exc)
 
     async def drop_all(self) -> None:
         for key in list(self._threads):

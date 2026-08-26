@@ -1,5 +1,13 @@
 # ChatCodex
 
+## Architecture and security model
+
+ChatCodex now uses an **OS-level full-access execution model**. There is no workspace sandbox and no approval gate used as the execution security boundary. The effective boundary is the operating-system account running ChatCodex.
+
+Execution is split into transport-independent filesystem, search, shell, and patch capabilities behind `ExecutionService`. Runtime dependencies are composed during FastAPI lifespan startup rather than by an import-time singleton.
+
+See [`SECURITY.md`](SECURITY.md) and [`docs/architecture.md`](docs/architecture.md) for the security and architecture models.
+
 在 ChatGPT 里安全地使用本地 Codex。
 
 ChatCodex 是一个本地网关：它把你的 ChatGPT 对话连接到这台电脑上的官方

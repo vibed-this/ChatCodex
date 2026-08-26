@@ -8,8 +8,8 @@ import warnings
 from contextlib import contextmanager
 from typing import Iterator
 
-from .config import Settings, _default_database_path
-from .file_security import restrict_path_to_owner
+from ..config import Settings, _default_database_path
+from ..file_security import restrict_path_to_owner
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS approval_audit (

@@ -13,7 +13,8 @@
 - `cd frontend && npm ci` installs the locked frontend dependencies.
 - `cd frontend && npm run dev` starts Vite; open `/preview.html` for widget inspection.
 - `cd frontend && npm run build` produces standalone widget and panel HTML files.
-- `cd frontend && npx tsc --noEmit` performs strict TypeScript checking.
+- `cd frontend && npm run typecheck` performs strict TypeScript checking.
+- `cd frontend && npm test` runs the frontend widget/build contract smoke tests.
 
 ## Coding Style & Naming Conventions
 
@@ -29,4 +30,6 @@ This checkout contains no usable Git history, so use concise imperative commits 
 
 ## Security & Configuration
 
-Never commit generated access tokens, `native/secrets/`, database files, or tunnel credentials. Keep Web and MCP tokens distinct. Review changes to OAuth callbacks, public URLs, sandbox modes, approval policies, and MCP allowlists as security-sensitive.
+Never commit generated access tokens, `native/secrets/`, database files, or tunnel credentials. Keep Web and MCP tokens distinct. ChatCodex uses OS-level full-access execution; the operating-system account is the effective execution boundary, not a workspace sandbox or approval gate. Review OAuth callbacks, public URLs, MCP authentication, and credential handling as security-sensitive.
+
+See `SECURITY.md` and `docs/architecture.md` for the current security and architecture model.

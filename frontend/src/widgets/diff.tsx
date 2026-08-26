@@ -12,14 +12,12 @@ import {
 } from "../lib/hooks";
 import { parseAnyDiff, type FileDiff } from "../lib/diff";
 import {
-  ApprovalView,
   DiffViewer,
   EmptyState,
   Notice,
   SurfaceHeader,
   WidgetShell,
   resolveSurface,
-  type ApprovalRequest,
 } from "../widget-ui";
 import {
   requestFocusedObject,
@@ -27,7 +25,6 @@ import {
   requestTargetedReply,
 } from "../lib/private-openai";
 import { mountWidget } from "../lib/mount";
-import { useApprovalDecision } from "./use-approval-decision";
 
 function App() {
   useTheme();
@@ -36,10 +33,6 @@ function App() {
   const rawInput = useToolInput<any>();
   const output = useToolOutput<any>();
   const [navigationError, setNavigationError] = useState("");
-  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const decision = useApprovalDecision(approval, {
-    onTerminal: () => setApproval(null),
-  });
   const viewParams = OA.hostViewParams<any>(host.view);
   const modalInput = viewParams &&
       ("diff" in viewParams || "fileChanges" in viewParams || "changes" in viewParams)
@@ -72,56 +65,6 @@ function App() {
       void requestCloseFocusedObject();
     }
   }, [focusedPath, host.view, privateCapabilities.focusedObject]);
-
-  useEffect(() => {
-    // Always poll for a pending approval, even when a previous diff output is
-    // already present.  A write_file/apply_patch call parks on the Gateway
-    // approval before it ever returns a fresh output, so gating this poll on
-    // `!output` would leave the approval invisible forever (the widget just
-    // spins).  This mirrors chat.tsx's unconditional polling.
-    let stopped = false;
-    let timer: number | undefined;
-    const refresh = async () => {
-      try {
-        const status = await OA.callTool<any>("execution_status", {});
-        if (stopped) return;
-        const pending = (status?.approvals ?? [])[0] ?? null;
-        setApproval(pending);
-        timer = window.setTimeout(refresh, status?.pending ? 1000 : 3500);
-      } catch {
-        if (!stopped) timer = window.setTimeout(refresh, 2000);
-      }
-    };
-    timer = window.setTimeout(refresh, 100);
-    return () => {
-      stopped = true;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, []);
-
-  if (approval) {
-    return (
-      <WidgetShell surface={surface} className="diff-widget">
-        <SurfaceHeader
-          icon={<Files aria-hidden="true" />}
-          title="文件操作等待审批"
-          description={approval.source === "appserver" ? "App Server 原生请求" : "Gateway 安全补位"}
-        />
-        <div className="surface-body">
-          <ApprovalView
-            request={approval}
-            answers={decision.answers}
-            onAnswer={decision.answer}
-          />
-          {decision.error && <Notice tone="danger">{decision.error}</Notice>}
-          <div className="embedded-approval-actions">
-            <button type="button" className="widget-button widget-button-primary" disabled={decision.busy || !decision.valid} onClick={() => void decision.reply("accept")}>允许一次</button>
-            <button type="button" className="widget-button widget-button-secondary" disabled={decision.busy} onClick={() => void decision.reply("decline")}>拒绝</button>
-          </div>
-        </div>
-      </WidgetShell>
-    );
-  }
 
   if (!rawInput && !output) {
     return (

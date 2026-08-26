@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .db import Database
+from .database import Database
 
 DEFAULTS: dict[str, Any] = {
     "public_route_kind": "",

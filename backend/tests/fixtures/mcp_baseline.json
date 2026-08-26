@@ -1,0 +1,26 @@
+{
+  "core_tools": [
+    "read",
+    "write",
+    "edit",
+    "glob",
+    "grep",
+    "bash",
+    "apply_patch"
+  ],
+  "tools": [
+    "apply_patch",
+    "bash",
+    "browse_dir",
+    "edit",
+    "glob",
+    "grep",
+    "mcp_call_tool",
+    "mcp_list_tools",
+    "read",
+    "request_user_input",
+    "update_plan",
+    "view_image",
+    "write"
+  ]
+}

@@ -28,9 +28,6 @@ export const api = {
   // 设置
   settings: (token: string) => req(token, "/api/settings"),
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
-  mcpTools: (token: string) => req(token, "/api/mcp-tools"),
-  setMcpToolPolicy: (token: string, policies: Record<string, string>) =>
-    req(token, "/api/mcp-tools/policy", { method: "POST", body: JSON.stringify({ policies }) }),
   setSettings: (token: string, kv: Record<string, any>) =>
     req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),
   // app-server
@@ -54,20 +51,4 @@ export const api = {
     req(token, "/api/chatgpt-tunnel/start", { method: "POST", body: JSON.stringify(body) }),
   chatgptTunnelStop: (token: string) =>
     req(token, "/api/chatgpt-tunnel/stop", { method: "POST" }),
-  // 审批
-  approvals: (token: string, conversationId = "") =>
-    req(token, `/api/approvals${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ""}`),
-  resolveApproval: (
-    token: string,
-    requestId: string,
-    decision: string,
-    expectedVersion?: number,
-    conversationId?: string,
-  ) =>
-    req(token, `/api/approvals/${encodeURIComponent(requestId)}/decision`, {
-      method: "POST",
-      body: JSON.stringify({ decision, expectedVersion, conversationId }),
-    }),
-  eventStreamUrl: (conversationId: string, lastEventId = 0) =>
-    `/api/events?conversationId=${encodeURIComponent(conversationId)}&lastEventId=${lastEventId}`,
 };

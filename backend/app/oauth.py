@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from .config import Settings
+from .persistence.oauth import OAuthClientRepository
 
 
 MAX_OAUTH_CLIENTS = 512
@@ -121,26 +122,15 @@ class OAuthStore:
         self.clients: dict[str, dict] = {}
         self.codes: dict[str, dict] = {}
         self.callback_protection = callback_protection
-        self.db = db
+        self.client_repository = OAuthClientRepository(db) if db is not None else None
 
     def get_client(self, client_id: str) -> Optional[dict]:
         client = self.clients.get(client_id)
-        if client is not None or self.db is None or not client_id:
+        if client is not None or self.client_repository is None or not client_id:
             return client
-        with self.db.conn() as connection:
-            row = connection.execute(
-                "SELECT value FROM kv_config WHERE key=?",
-                (f"oauth-client:{client_id}",),
-            ).fetchone()
-        if not row:
-            return None
-        try:
-            client = json.loads(row["value"])
-        except Exception:
-            return None
-        if not isinstance(client, dict) or client.get("client_id") != client_id:
-            return None
-        self.clients[client_id] = client
+        client = self.client_repository.get(client_id)
+        if client is not None:
+            self.clients[client_id] = client
         return client
 
     def register_client(self, meta: dict) -> dict:
@@ -198,21 +188,8 @@ class OAuthStore:
             )
             self.clients.pop(oldest, None)
         self.clients[cid] = rec
-        if self.db is not None:
-            with self.db.conn() as connection:
-                rows = connection.execute(
-                    "SELECT key FROM kv_config WHERE key LIKE 'oauth-client:%' "
-                    "ORDER BY rowid ASC"
-                ).fetchall()
-                excess = max(0, len(rows) - MAX_OAUTH_CLIENTS + 1)
-                for row in rows[:excess]:
-                    old_key = row["key"]
-                    connection.execute("DELETE FROM kv_config WHERE key=?", (old_key,))
-                    self.clients.pop(old_key.removeprefix("oauth-client:"), None)
-                connection.execute(
-                    "INSERT OR REPLACE INTO kv_config(key,value) VALUES(?,?)",
-                    (f"oauth-client:{cid}", json.dumps(rec, separators=(",", ":"))),
-                )
+        if self.client_repository is not None:
+            self.client_repository.save(rec, MAX_OAUTH_CLIENTS)
         return rec
 
     def issue_code(self, client_id: str, redirect_uri: str, challenge: str,
