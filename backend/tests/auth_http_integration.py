@@ -190,7 +190,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
             status == 200
             and prmd.get("resource") == base + "/mcp"
             and prmd.get("authorization_servers") == [base]
-            and prmd.get("scopes_supported") == ["tools"]
+            and prmd.get("scopes_supported") == ["tools", "codex"]
         )
         else 0
     )
