@@ -61,9 +61,6 @@ class FakeExecutionService:
             "fileChanges": [],
         }
 
-    async def update_plan(self, *args: Any) -> dict[str, Any]:
-        return {"updated": True, "explanation": "", "plan": []}
-
     async def browse_dir(self, *args: Any) -> dict[str, Any]:
         return {"path": args[0] if args else "", "parent": None, "entries": []}
 

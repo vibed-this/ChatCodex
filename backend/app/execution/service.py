@@ -67,23 +67,6 @@ class ExecutionService:
     async def browse_dir(self, path: str = "") -> Any:
         return await self._invoke(self.filesystem.browse_dir, path)
 
-    async def update_plan(
-        self, plan: list[dict[str, Any]], explanation: str = ""
-    ) -> Any:
-        statuses = [str(item.get("status") or "pending") for item in plan]
-        if any(s not in {"pending", "in_progress", "completed"} for s in statuses):
-            msg = "unsupported plan status"
-            raise ValueError(msg)
-        if statuses.count("in_progress") > 1:
-            msg = "at most one plan item may be in_progress"
-            raise ValueError(msg)
-        return {
-            "conversationId": "",
-            "updated": True,
-            "plan": plan,
-            "explanation": explanation,
-        }
-
     def mcp_tool_policies(self) -> dict[str, str]:
         return {}
 
