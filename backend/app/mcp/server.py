@@ -372,6 +372,13 @@ def build_mcp(
 
     @register_tool(
         "bash",
+        description=(
+            "Execute a local shell command synchronously and wait for it to finish. "
+            "For background work, long-running commands, or resident tasks, always use "
+            "shell_spawn instead; bash is synchronously blocking. Use shell_spawn + "
+            "shell_wait for background execution and read or grep the returned outputPath "
+            "for command output."
+        ),
         meta={
             "openai/toolInvocation/invoking": "Running command",
             "openai/toolInvocation/invoked": "Command finished",
@@ -399,6 +406,81 @@ def build_mcp(
             return result
         except Exception as exc:
             _dbg_err("bash", exc)
+            raise as_tool_error(exc) from exc
+
+    @register_tool(
+        "shell_spawn",
+        meta={
+            "openai/toolInvocation/invoking": "Starting background shell",
+            "openai/toolInvocation/invoked": "Background shell started",
+        },
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+    async def shell_spawn(
+        ctx: Context[Any, Any, Any], command: str, workdir: str | None = None
+    ) -> dict[str, Any]:
+        _dbg_in("shell_spawn", {"command": command, "workdir": workdir})
+        try:
+            result: dict[str, Any] = await orch.shell_spawn(command, workdir)
+            _dbg_out("shell_spawn", result)
+            return result
+        except Exception as exc:
+            _dbg_err("shell_spawn", exc)
+            raise as_tool_error(exc) from exc
+
+    @register_tool(
+        "shell_kill",
+        meta={
+            "openai/toolInvocation/invoking": "Killing background shell",
+            "openai/toolInvocation/invoked": "Background shell killed",
+        },
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+    async def shell_kill(ctx: Context[Any, Any, Any], shellId: str) -> dict[str, Any]:
+        _dbg_in("shell_kill", {"shellId": shellId})
+        try:
+            result: dict[str, Any] = await orch.shell_kill(shellId)
+            _dbg_out("shell_kill", result)
+            return result
+        except Exception as exc:
+            _dbg_err("shell_kill", exc)
+            raise as_tool_error(exc) from exc
+
+    @register_tool(
+        "shell_wait",
+        meta={
+            "openai/toolInvocation/invoking": "Waiting for background shell",
+            "openai/toolInvocation/invoked": "Background shell wait complete",
+        },
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+    async def shell_wait(
+        ctx: Context[Any, Any, Any], shellId: str, timeout: int | None = None
+    ) -> dict[str, Any]:
+        _dbg_in("shell_wait", {"shellId": shellId, "timeout": timeout})
+        if timeout is not None and (isinstance(timeout, bool) or timeout < 0):
+            raise ToolError("timeout must be a non-negative integer")
+        try:
+            result: dict[str, Any] = await orch.shell_wait(shellId, timeout)
+            _dbg_out("shell_wait", result)
+            return result
+        except Exception as exc:
+            _dbg_err("shell_wait", exc)
             raise as_tool_error(exc) from exc
 
     @register_tool(

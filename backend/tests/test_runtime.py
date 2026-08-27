@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,4 +21,4 @@ class RuntimeCompositionTests(unittest.TestCase):
                 assert runtime.execution.settings is runtime.settings
                 assert runtime.tunnels.settings is runtime.settings
             finally:
-                runtime.close()
+                asyncio.run(runtime.close())

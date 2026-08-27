@@ -61,6 +61,18 @@ class ExecutionService:
     ) -> Any:
         return await self._invoke(self.shell.execute, command, timeout, workdir)
 
+    async def shell_spawn(self, command: str, workdir: str | None = None) -> Any:
+        return await self._invoke(self.shell.spawn, command, workdir)
+
+    async def shell_kill(self, shell_id: str) -> Any:
+        return await self._invoke(self.shell.kill, shell_id)
+
+    async def shell_wait(self, shell_id: str, timeout: int | None = None) -> Any:
+        return await self._invoke(self.shell.wait, shell_id, timeout)
+
+    async def close(self) -> None:
+        await self.shell.close()
+
     async def apply_patch(self, patch_text: str) -> Any:
         return await self._invoke(self.patch.apply, patch_text)
 
@@ -81,6 +93,9 @@ class ExecutionService:
             "glob",
             "grep",
             "bash",
+            "shell_spawn",
+            "shell_kill",
+            "shell_wait",
             "apply_patch",
             "browse_dir",
         ]

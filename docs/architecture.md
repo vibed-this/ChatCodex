@@ -25,7 +25,7 @@ Execution capabilities are transport-independent. `ExecutionService` composes th
 
 - `filesystem.py`: read/write/edit/delete/image/directory operations.
 - `search.py`: glob/grep.
-- `shell.py`: non-blocking local shell execution, timeout, output limiting, cancellation, and process-tree termination.
+- `shell.py`: synchronous shell execution plus managed background shells. `shell_spawn` returns immediately with a shell ID and a temporary output path; stdout/stderr are redirected directly to that file. `shell_wait` can wait with an optional timeout without killing the shell when the timeout expires, and `shell_kill` terminates the shell process tree.
 - `patch.py`: patch parse/validation/materialization/commit.
 - `_common.py`: capability-local algorithms and shared constants.
 - `errors.py`: stable execution error taxonomy.
@@ -35,6 +35,12 @@ The former `execution/backend.py` implementation has been removed.
 ## MCP layer
 
 `app/mcp/schemas.py` contains the canonical core tool definitions. The MCP adapter registers handlers with FastMCP but does not use FastMCP private registries. `ContractFastMCP` exposes the canonical input schema and description to MCP clients.
+
+### Background shell usage
+
+`bash` is synchronous and blocks until the command finishes (or its timeout is reached). Long-running, ordinary background, and resident tasks must use `shell_spawn` instead. The spawn call does not collect command output in memory; the child process writes stdout and stderr directly to a temporary file and the tool returns its path. The AI should use `read` or `grep` against that path to inspect output.
+
+`shell_wait(shellId, timeout)` waits for termination. `timeout` is in milliseconds; if it expires, the tool returns immediately and leaves the shell running. `shell_kill(shellId)` terminates the shell and its process tree. `batch_call` can be used to issue several `shell_spawn` calls first and then several `shell_wait` calls, allowing multiple background tasks to start without waiting between starts.
 
 ## Persistence layer
 

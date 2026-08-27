@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
+import uuid
 from typing import Any
 
 from ._common import *  # noqa: F403  # noqa: F403
@@ -28,6 +30,129 @@ class ShellService:
 
     def __init__(self, settings: Any) -> None:
         self.settings = settings
+        self._background: dict[str, BackgroundShell] = {}
+        self._background_lock = asyncio.Lock()
+
+    async def spawn(self, command: str, workdir: Optional[str] = None) -> dict[str, Any]:
+        """Start a shell without waiting; stdout/stderr go directly to a temp file."""
+        cwd = _resolve_absolute(workdir) if workdir else os.getcwd()
+        if not os.path.isdir(cwd):
+            raise ExecutionError("not_found", f"Workdir does not exist: {cwd}")
+        shell = os.environ.get("SHELL", "/bin/sh" if os.name != "nt" else "cmd.exe")
+        if os.name == "nt":
+            import shutil
+            pwsh = shutil.which("pwsh") or shutil.which("powershell")
+            shell = pwsh or (shutil.which("cmd") or shell)
+        is_pwsh = "pwsh" in shell.lower() or "powershell" in shell.lower()
+        output_path = self._new_output_path()
+        output_handle = open(output_path, "wb")
+        creation_kwargs: dict[str, Any] = {"start_new_session": os.name != "nt"}
+        if os.name == "nt":
+            creation_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        try:
+            if is_pwsh:
+                proc = await asyncio.create_subprocess_exec(
+                    shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command,
+                    cwd=cwd, stdout=output_handle, stderr=subprocess.STDOUT, **creation_kwargs,
+                )
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    command, cwd=cwd, stdout=output_handle, stderr=subprocess.STDOUT,
+                    executable=shell or None, **creation_kwargs,
+                )
+        except Exception as exc:
+            output_handle.close()
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+            raise ExecutionError("shell_spawn_error", str(exc)) from exc
+        shell_id = uuid.uuid4().hex
+        record = BackgroundShell(shell_id, command, output_path, proc, output_handle, time.time())
+        async with self._background_lock:
+            self._background[shell_id] = record
+        asyncio.create_task(self._finalize_background(record))
+        return {"shellId": shell_id, "pid": proc.pid, "command": command, "workdir": cwd,
+                "outputPath": output_path, "running": proc.returncode is None}
+
+    async def kill(self, shell_id: str) -> dict[str, Any]:
+        record = await self._get_background(shell_id)
+        if record.proc.returncode is None:
+            await _terminate_process_tree(record.proc)
+            try:
+                await asyncio.wait_for(record.proc.wait(), timeout=3)
+            except (TimeoutError, OSError):
+                pass
+        return self._background_status(record)
+
+    async def wait(self, shell_id: str, timeout: Optional[int] = None) -> dict[str, Any]:
+        if timeout is not None and (isinstance(timeout, bool) or timeout < 0):
+            raise ExecutionError("invalid_timeout", "Timeout must be a non-negative integer.")
+        record = await self._get_background(shell_id)
+        if record.proc.returncode is None:
+            try:
+                if timeout is None:
+                    await record.proc.wait()
+                else:
+                    await asyncio.wait_for(record.proc.wait(), timeout=timeout / 1000.0)
+            except TimeoutError:
+                return self._background_status(record, timed_out=True)
+        return self._background_status(record)
+
+    async def _get_background(self, shell_id: str) -> "BackgroundShell":
+        async with self._background_lock:
+            self._prune_finished_background_locked()
+            record = self._background.get(shell_id)
+        if record is None:
+            raise ExecutionError("not_found", f"Background shell does not exist: {shell_id}")
+        return record
+
+    async def _finalize_background(self, record: "BackgroundShell") -> None:
+        try:
+            await record.proc.wait()
+        finally:
+            record.output_handle.close()
+            record.finished_at = time.time()
+
+    async def close(self) -> None:
+        """Terminate all remaining background shells during application shutdown."""
+        async with self._background_lock:
+            records = list(self._background.values())
+        for record in records:
+            if record.proc.returncode is None:
+                await _terminate_process_tree(record.proc)
+        for record in records:
+            if record.proc.returncode is None:
+                try:
+                    await asyncio.wait_for(record.proc.wait(), timeout=3)
+                except (TimeoutError, OSError):
+                    continue
+
+    def _prune_finished_background_locked(self) -> None:
+        cutoff = time.time() - self.RETENTION_SECONDS
+        stale = [
+            record
+            for record in self._background.values()
+            if record.finished_at is not None and record.finished_at < cutoff
+        ]
+        for record in stale:
+            self._background.pop(record.shell_id, None)
+            try:
+                os.remove(record.output_path)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _background_status(record: "BackgroundShell", timed_out: bool = False) -> dict[str, Any]:
+        return {"shellId": record.shell_id, "pid": record.proc.pid, "command": record.command,
+                "outputPath": record.output_path, "running": record.proc.returncode is None,
+                "exitCode": record.proc.returncode, "timedOut": timed_out}
+
+    def _new_output_path(self) -> str:
+        self._prune_finished_background_locked()
+        fd, path = tempfile.mkstemp(prefix="shell_", suffix=".log", dir=self._output_dir())
+        os.close(fd)
+        return path
 
     @classmethod
     def _output_dir(cls) -> str:
@@ -209,3 +334,14 @@ class ShellService:
         except Exception as e:
             msg = "bash_error"
             raise ExecutionError(msg, str(e))
+
+
+@dataclasses.dataclass
+class BackgroundShell:
+    shell_id: str
+    command: str
+    output_path: str
+    proc: Any
+    output_handle: Any
+    started_at: float
+    finished_at: float | None = None

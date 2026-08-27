@@ -41,7 +41,8 @@ class Runtime:
     generated_web_token: bool
     generated_mcp_token: bool
 
-    def close(self) -> None:
+    async def close(self) -> None:
+        await self.execution.close()
         self.db.close()
 
 

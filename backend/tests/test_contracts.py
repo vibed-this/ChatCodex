@@ -51,6 +51,15 @@ class FakeExecutionService:
             "outputPath": None,
         }
 
+    async def shell_spawn(self, *args: Any) -> dict[str, Any]:
+        return {"shellId": "shell-1", "pid": 1, "command": args[0], "outputPath": "C:/tmp/shell.log", "running": True}
+
+    async def shell_kill(self, *args: Any) -> dict[str, Any]:
+        return {"shellId": args[0], "pid": 1, "outputPath": "C:/tmp/shell.log", "running": False, "exitCode": -9, "timedOut": False}
+
+    async def shell_wait(self, *args: Any) -> dict[str, Any]:
+        return {"shellId": args[0], "pid": 1, "outputPath": "C:/tmp/shell.log", "running": False, "exitCode": 0, "timedOut": False}
+
     async def apply_patch(self, *args: Any) -> dict[str, Any]:
         return {
             "title": "apply_patch",
@@ -256,6 +265,14 @@ class ToolContractTests(unittest.IsolatedAsyncioTestCase):
         payload = cast("dict[str, Any]", result[1])
         item = cast("list[dict[str, Any]]", payload["results"])[0]
         assert item["isError"] is True
+
+    async def test_background_shell_tools_are_registered(self) -> None:
+        server = build_mcp(Settings(mcp_auth_mode="noauth"), cast("Any", FakeExecutionService()))
+        tools = {tool.name: tool for tool in await server.list_tools()}
+        for name in ("shell_spawn", "shell_kill", "shell_wait"):
+            assert name in tools
+            assert tools[name].inputSchema == TOOL_DEFINITIONS[name].input_schema
+            assert tools[name].outputSchema == TOOL_DEFINITIONS[name].output_schema
 
 
 if __name__ == "__main__":

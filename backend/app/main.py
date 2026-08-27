@@ -162,7 +162,7 @@ async def lifespan(app: FastAPI) -> Any:
     finally:
         await _require(tunnels).stop()
         await _require(chrome_devtools).close()
-        runtime.close()
+        await runtime.close()
 
 
 async def _autostart_transports() -> None:

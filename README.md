@@ -6,6 +6,8 @@ ChatCodex now uses an **OS-level full-access execution model**. There is no work
 
 Execution is split into transport-independent filesystem, search, shell, and patch capabilities behind `ExecutionService`. Runtime dependencies are composed during FastAPI lifespan startup rather than by an import-time singleton.
 
+For command execution, `bash` is synchronous and blocking. Use `shell_spawn` for long-running or resident work; it returns immediately and redirects stdout/stderr directly to a temporary file. Use `shell_wait` to wait for completion (optionally with a timeout) and `shell_kill` to terminate a background shell. Read background command output from the returned `outputPath` with the normal `read` or `grep` tools. When several background commands are independent, use `batch_call` to spawn them first and then wait for them.
+
 See [`SECURITY.md`](SECURITY.md) and [`docs/architecture.md`](docs/architecture.md) for the security and architecture models.
 
 在 ChatGPT 中安全使用本机执行工具。

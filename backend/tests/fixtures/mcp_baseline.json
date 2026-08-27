@@ -18,6 +18,9 @@
     "glob",
     "grep",
     "read",
+    "shell_kill",
+    "shell_spawn",
+    "shell_wait",
     "write"
   ]
 }

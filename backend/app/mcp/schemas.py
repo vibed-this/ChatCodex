@@ -30,7 +30,7 @@ def _schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
 
 BATCH_TOOL_DEFINITION = ToolDefinition(
     "batch_call",
-    "Call multiple MCP tools in one request, preserving input order and returning each result independently.",
+    "Call multiple MCP tools in one request, preserving input order and returning each result independently. For parallel background work, put multiple shell_spawn calls first and then shell_wait calls immediately after them so several shells start without waiting between starts. Do not invoke batch_call recursively.",
     _schema(
         {
             "calls": {
@@ -56,6 +56,33 @@ BATCH_TOOL_DEFINITION = ToolDefinition(
         "properties": {"results": {"type": "array"}},
         "required": ["results"],
     },
+)
+
+SHELL_SPAWN_TOOL_DEFINITION = ToolDefinition(
+    "shell_spawn",
+    "Start a local shell command in the background and return immediately. stdout and stderr are redirected directly to the returned temporary outputPath; use read or grep on that file instead of expecting command output here.",
+    _schema(
+        {"command": {"type": "string"}, "workdir": {"type": ["string", "null"]}},
+        ["command"],
+    ),
+    {"type": "object", "additionalProperties": True},
+)
+
+SHELL_KILL_TOOL_DEFINITION = ToolDefinition(
+    "shell_kill",
+    "Kill a background shell identified by shellId and its child process tree.",
+    _schema({"shellId": {"type": "string"}}, ["shellId"]),
+    {"type": "object", "additionalProperties": True},
+)
+
+SHELL_WAIT_TOOL_DEFINITION = ToolDefinition(
+    "shell_wait",
+    "Wait for a background shell to terminate. timeout is optional milliseconds; when it expires, return immediately without killing the shell. The result always includes outputPath so the AI can read the temporary output file directly.",
+    _schema(
+        {"shellId": {"type": "string"}, "timeout": {"type": ["integer", "null"]}},
+        ["shellId"],
+    ),
+    {"type": "object", "additionalProperties": True},
 )
 
 
@@ -120,7 +147,7 @@ CORE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
     ),
     ToolDefinition(
         "bash",
-        "Execute a local shell command with OS-level permissions; Windows uses PowerShell.",
+        "Execute a local shell command synchronously and wait for it to finish. bash is synchronously blocking. For ordinary commands this is appropriate; for long-running commands, background work, or resident tasks, always use shell_spawn instead, then shell_wait as needed. Command output from background shells is redirected to the returned temporary outputPath and should be read with read or grep.",
         _schema(
             {
                 "command": {"type": "string"},
@@ -141,5 +168,11 @@ CORE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
 
 TOOL_DEFINITIONS = {
     definition.name: definition
-    for definition in (*CORE_TOOL_DEFINITIONS, BATCH_TOOL_DEFINITION)
+    for definition in (
+        *CORE_TOOL_DEFINITIONS,
+        BATCH_TOOL_DEFINITION,
+        SHELL_SPAWN_TOOL_DEFINITION,
+        SHELL_KILL_TOOL_DEFINITION,
+        SHELL_WAIT_TOOL_DEFINITION,
+    )
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import tempfile
@@ -20,7 +21,7 @@ class BackendSmokeTests(unittest.TestCase):
             finally:
                 runtime = getattr(locals().get("main"), "runtime", None)
                 if runtime is not None:
-                    runtime.close()
+                    asyncio.run(runtime.close())
                 if old is None:
                     os.environ.pop("CHATCODEX_DATABASE_URL", None)
                 else:
@@ -39,7 +40,7 @@ class BackendSmokeTests(unittest.TestCase):
                 runtime = create_runtime()
                 assert runtime.execution is not None
                 assert runtime.mcp is not None
-                runtime.close()
+                asyncio.run(runtime.close())
             finally:
                 if old is None:
                     os.environ.pop("CHATCODEX_DATABASE_URL", None)
