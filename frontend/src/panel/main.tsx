@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Archive, Bot, Check, ChevronRight, CircleHelp, Cloud, Code2,
-  Copy, Download, ExternalLink, Eye, EyeOff, FileClock, Gauge, KeyRound, Layers3,
+  Bot, Check, ChevronRight, Cloud,
+  Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
   LockKeyhole, LogOut, Menu, Moon, Network, Play, RefreshCw, Save,
-  Settings2, Square, Sun, Users,
-  X, Zap,
+  Settings2, Square, Sun, Zap,
 } from "lucide-react";
 import "../styles.css";
 import { api } from "./api";
@@ -19,10 +18,9 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "contexts" | "tunnel" | "settings";
+type Tab = "overview" | "tunnel" | "settings";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
-  { id: "contexts", label: "执行上下文", icon: Layers3 },
   { id: "tunnel", label: "公网入口", icon: Network },
   { id: "settings", label: "设置", icon: Settings2 },
 ];
@@ -91,7 +89,6 @@ function App() {
         </header>
         <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
           {tab === "overview" && <Overview data={overview} go={selectTab} />}
-          {tab === "contexts" && <ExecutionContexts />}
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
         </main>
@@ -143,7 +140,6 @@ function Login({ onSuccess, dark, setDark }: { onSuccess(): void; dark: boolean;
 function Overview({ data, go }: { data: any; go(tab: Tab): void }) {
   if (!data) return <Loading text="正在读取 Gateway 状态" />;
   const stats = [
-    { label: "活跃上下文", value: data.executionContexts?.active ?? 0, detail: `共 ${data.executionContexts?.total ?? 0} 个工作区绑定`, icon: Users, tab: "contexts" as Tab },
     { label: "公网入口", value: data.publicRoute?.running ? "已启用" : "未启用", detail: data.publicRoute?.kind ?? "none", icon: Cloud, tab: "tunnel" as Tab },
   ];
   const publicEndpoint = data.publicRoute?.url?.startsWith("http") ? mcpUrl(data.publicRoute.url) : data.publicRoute?.url;
@@ -157,20 +153,6 @@ function Overview({ data, go }: { data: any; go(tab: Tab): void }) {
       </div>
     </Page>
   );
-}
-
-function ExecutionContexts() {
-  const [items, setItems] = useState<any[]>([]); const [selected, setSelected] = useState<any>(null); const [error, setError] = useState("");
-  const load = () => api.executionContexts("").then((d) => { setItems(d.contexts ?? []); }).catch((e) => { setError(String(e)); });
-  useEffect(() => { load(); }, []);
-  async function status(item: any, value: string) { await api.setExecutionContextStatus("", item.id, value); setSelected(null); load(); }
-  return <Page title="执行上下文" description="每个上下文把 WebChat 对话绑定到本地工作区与执行状态。" actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5" />刷新</Button>}>
-    {error && <Alert>{error}</Alert>}
-    {!items.length ? <Card><CardContent className="p-6"><Empty icon={FileClock} title="暂无执行上下文" detail="在 WebChat 工作区面板保存目录和安全设置后会显示在这里。" /></CardContent></Card> : <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <Card className="overflow-hidden"><div className="divide-y">{items.map((item) => <button key={item.id} onClick={() => { setSelected(item); }} className={cn("flex w-full items-center gap-4 p-4 text-left transition hover:bg-accent/60", selected?.id === item.id && "bg-accent")}><div className="rounded-lg bg-muted p-2"><Code2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.cwd || "未命名工作区"}</span><Badge variant={item.status === "active" ? "success" : "secondary"}>{item.status}</Badge></div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{item.conversationId}</p></div><ChevronRight className="h-4 w-4 text-muted-foreground" /></button>)}</div></Card>
-      <Card className="h-fit xl:sticky xl:top-24">{selected ? <><CardHeader className="flex-row items-start justify-between"><div><CardTitle>上下文详情</CardTitle><CardDescription className="mt-1">{selected.status}</CardDescription></div><Button size="icon" variant="ghost" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="space-y-4"><Details data={[["Conversation", selected.conversationId], ["目录", selected.cwd], ["工作区根", selected.workspaceRoots?.join(", ")], ["版本", selected.version]]} /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => status(selected, selected.status === "active" ? "archived" : "active")}><Archive className="h-3.5 w-3.5" />{selected.status === "active" ? "归档" : "恢复"}</Button></div></CardContent></> : <CardContent className="p-6"><Empty icon={CircleHelp} title="选择一个执行上下文" detail="查看工作区与执行版本。" /></CardContent>}</Card>
-    </div>}
-  </Page>;
 }
 
 function Tunnel() {
@@ -283,7 +265,6 @@ function SecurityBlock({ number, title, description, children }: { number: strin
 function Boundary({ icon: Icon, title, value, detail }: { icon: React.ElementType; title: string; value: string; detail: string }) { return <div className="flex items-center gap-3 rounded-lg border p-3"><Icon className="h-4 w-4 text-primary" /><div className="min-w-0"><p className="text-sm font-medium">{title} <span className="text-muted-foreground">· {value}</span></p><p className="text-xs text-muted-foreground">{detail}</p></div></div>; }
 function StatusLine({ label, on }: { label: string; on?: boolean }) { return <div className="flex items-center gap-2 py-1 text-xs"><span className={cn("h-2 w-2 rounded-full", on ? "bg-emerald-500" : "bg-muted-foreground/40")} /><span className="text-muted-foreground">{label}</span><span className="ml-auto font-medium">{on ? "在线" : "离线"}</span></div>; }
 function MiniStatus({ label, on }: { label: string; on: boolean }) { return <div className="rounded-lg border p-2 text-center"><div className={cn("mx-auto mb-1 h-1.5 w-1.5 rounded-full", on ? "bg-emerald-500" : "bg-muted-foreground/40")} /><p className="text-[11px] text-muted-foreground">{label}</p></div>; }
-function Details({ data }: { data: Array<[string, any]> }) { return <dl className="space-y-3">{data.map(([key, value]) => <div key={key} className="grid grid-cols-[90px_1fr] gap-3 text-sm"><dt className="text-muted-foreground">{key}</dt><dd className="break-all font-mono text-xs leading-5">{value ?? "—"}</dd></div>)}</dl>; }
 function CopyValue({ value }: { value: string }) { const [copied, setCopied] = useState(false); return <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2 pl-3"><code className="min-w-0 flex-1 break-all text-xs">{value}</code><Button size="icon" variant="ghost" className="shrink-0" onClick={async () => { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => { setCopied(false); }, 1200); }}>{copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}</Button></div>; }
 function Empty({ icon: Icon, title, detail, action }: { icon: React.ElementType; title: string; detail: string; action?: React.ReactNode }) { return <div className="flex flex-col items-center px-4 py-8 text-center"><div className="mb-3 rounded-full bg-muted p-3 text-muted-foreground"><Icon className="h-5 w-5" /></div><p className="text-sm font-medium">{title}</p><p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">{detail}</p>{action && <div className="mt-4">{action}</div>}</div>; }
 function Alert({ tone = "error", children }: { tone?: "error" | "warning"; children: React.ReactNode }) { return <div role="alert" className={cn("mb-4 rounded-lg border p-3 text-sm leading-6", tone === "warning" ? "border-amber-500/20 bg-amber-500/5 text-amber-800 dark:text-amber-200" : "border-destructive/20 bg-destructive/5 text-destructive")}>{children}</div>; }

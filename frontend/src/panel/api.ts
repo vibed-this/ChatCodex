@@ -17,14 +17,6 @@ export const api = {
   authStatus: () => req("", "/api/auth/session"),
   logout: () => req("", "/api/auth/session", { method: "DELETE" }),
   overview: (token: string) => req(token, "/api/overview"),
-  // WebChat 执行上下文
-  executionContexts: (token: string, status = "") =>
-    req(token, `/api/execution-contexts${status ? `?status=${status}` : ""}`),
-  setExecutionContextStatus: (token: string, contextId: string, status: string) =>
-    req(token, `/api/execution-contexts/${contextId}/status`, {
-      method: "POST",
-      body: JSON.stringify({ status }),
-    }),
   // 设置
   settings: (token: string) => req(token, "/api/settings"),
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
