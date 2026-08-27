@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   Bot, Check, ChevronRight, Cloud,
   Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
-  LockKeyhole, LogOut, Menu, Moon, Network, Play, RefreshCw, Save,
+  LockKeyhole, LogOut, Menu, Moon, Network, PanelLeftClose, PanelLeftOpen, Play, RefreshCw, Save,
   Settings2, Square, Sun, Zap, Search, Trash2, X,
 } from "lucide-react";
 import "../styles.css";
@@ -31,6 +31,7 @@ function App() {
   const [tab, setTab] = useState<Tab>("overview");
   const [overview, setOverview] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [dark, setDark] = useState(localStorage.getItem("cc_theme") === "dark");
 
   useEffect(() => {
@@ -58,36 +59,34 @@ function App() {
   const selectTab = (value: Tab) => { setTab(value); setNavOpen(false); };
   return (
     <div className="min-h-screen bg-muted/35 text-foreground">
-      <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r bg-background transition-transform lg:translate-x-0", navOpen ? "translate-x-0" : "-translate-x-full")}>
-        <Brand />
+      <aside className={cn("fixed inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r bg-background transition-[width,transform] duration-200", navCollapsed ? "w-16" : "w-64", navOpen ? "translate-x-0" : "-translate-x-full", "lg:translate-x-0")}>
+        <div className={cn("flex items-center p-3", navCollapsed ? "justify-center" : "justify-between")}>
+          {!navCollapsed && <Brand />}
+          <Button variant="ghost" size="icon" aria-label={navCollapsed ? "展开侧边栏" : "折叠侧边栏"} onClick={() => { setNavCollapsed(!navCollapsed); }}>
+            {navCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+        </div>
         <nav className="flex-1 space-y-1 px-3 py-4">
-          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Workspace</p>
+          {!navCollapsed && <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Workspace</p>}
           {NAV.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => { selectTab(id); }} className={cn("flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors", tab === id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-              <Icon className="h-4 w-4" />{label}
+            <button key={id} onClick={() => { selectTab(id); }} aria-label={label} title={navCollapsed ? label : undefined} className={cn("flex h-10 w-full items-center rounded-lg text-sm font-medium transition-colors", navCollapsed ? "justify-center px-0" : "gap-3 px-3", tab === id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
+              <Icon className="h-4 w-4" />{!navCollapsed && label}
             </button>
           ))}
         </nav>
-        <div className="m-3 rounded-xl border bg-muted/40 p-3">
-          <StatusLine label="公网入口" on={overview?.publicRoute?.running} />
+        {!navCollapsed && <div className="m-3 rounded-xl border bg-muted/40 p-3">
+          <StatusLine label="公开路由" on={overview?.publicRoute?.running} />
           <StatusLine label="MCP Tunnel" on={overview?.chatgptTunnel?.running} />
-        </div>
-        <div className="flex items-center gap-1 border-t p-3">
+        </div>}
+        <div className={cn("flex items-center gap-1 border-t p-3", navCollapsed && "flex-col")}>
           <Button variant="ghost" size="icon" aria-label="切换主题" onClick={() => { setDark(!dark); }}>{dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
-          <Button variant="ghost" className="ml-auto text-muted-foreground" onClick={async () => { await api.logout(); setAuthenticated(false); }}><LogOut className="h-4 w-4" />退出</Button>
+          <Button variant="ghost" size={navCollapsed ? "icon" : "default"} className={cn(!navCollapsed && "ml-auto text-muted-foreground")} aria-label="退出" title={navCollapsed ? "退出" : undefined} onClick={async () => { await api.logout(); setAuthenticated(false); }}><LogOut className="h-4 w-4" />{!navCollapsed && "退出"}</Button>
         </div>
       </aside>
       {navOpen && <button aria-label="关闭导航" className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => { setNavOpen(false); }} />}
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur lg:px-8">
-          <Button variant="ghost" size="icon" className="lg:hidden" aria-label="打开导航" onClick={() => { setNavOpen(true); }}><Menu className="h-5 w-5" /></Button>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{NAV.find((item) => item.id === tab)?.label}</p>
-            <p className="truncate text-xs text-muted-foreground">ChatCodex Gateway 控制台</p>
-          </div>
-          <Badge variant={overview ? "success" : "secondary"} className="ml-auto gap-1.5"><span className={cn("h-1.5 w-1.5 rounded-full", overview ? "bg-emerald-500" : "bg-muted-foreground")} />{overview ? "系统正常" : "等待服务"}</Badge>
-        </header>
+      <div className={cn("transition-[padding] duration-200", navCollapsed ? "lg:pl-16" : "lg:pl-64")}>
+        <Button variant="outline" size="icon" className="fixed left-4 top-4 z-20 lg:hidden" aria-label="打开侧边栏" onClick={() => { setNavOpen(true); }}><Menu className="h-5 w-5" /></Button>
         <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
           {tab === "overview" && <Overview data={overview} go={selectTab} />}
           {tab === "tunnel" && <Tunnel />}
