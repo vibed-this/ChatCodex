@@ -6,13 +6,13 @@ from __future__ import annotations
 import ipaddress
 import json as _json
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from mcp import types as mtypes
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
-from pydantic import AnyHttpUrl, TypeAdapter
+from pydantic import AnyHttpUrl, Field, TypeAdapter
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -555,5 +555,129 @@ def build_mcp(
         result: dict[str, Any] = await orch.browse_dir(path or "")
         _dbg_out("browse_dir", result)
         return result
+
+    @register_tool(
+        "batch_call",
+        description=(
+            "Call multiple MCP tools in one request. Calls execute sequentially in the "
+            "order supplied, so each call may safely depend on earlier side effects. "
+            "Each result is returned independently; a failed call does not prevent later "
+            "calls from executing. Do not invoke batch_call recursively."
+        ),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    )
+    async def batch_call(
+        calls: Annotated[
+            list[dict[str, Any]],
+            Field(
+                description=(
+                    "Ordered list of MCP tool calls. Every item must contain a tool name "
+                    "and an arguments object. The batch_call tool itself may not be nested."
+                )
+            ),
+        ],
+    ) -> dict[str, Any]:
+        _dbg_in("batch_call", {"calls": calls})
+        results: list[dict[str, Any]] = []
+        for index, call in enumerate(calls):
+            name = call.get("name")
+            arguments = call.get("arguments")
+            if not isinstance(name, str) or not isinstance(arguments, dict):
+                results.append(
+                    {
+                        "index": index,
+                        "name": name,
+                        "isError": True,
+                        "error": "Each batch item requires a string 'name' and object 'arguments'.",
+                    }
+                )
+                continue
+            if name == "batch_call":
+                results.append(
+                    {
+                        "index": index,
+                        "name": name,
+                        "isError": True,
+                        "error": "batch_call cannot invoke itself recursively.",
+                    }
+                )
+                continue
+            try:
+                result = await mcp.call_tool(name, arguments)
+                structured = result[1] if isinstance(result, tuple) and len(result) > 1 else result
+                results.append(
+                    {
+                        "index": index,
+                        "name": name,
+                        "isError": False,
+                        "result": structured,
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "index": index,
+                        "name": name,
+                        "isError": True,
+                        "error": str(exc),
+                    }
+                )
+        result = {"results": results}
+        _dbg_out("batch_call", result)
+        return result
+
+    @register_tool(
+        "finish_work",
+        description=(
+            "MANDATORY FINALIZATION TOOL. You MUST call this tool before ending "
+            "EVERY work round. This requirement is ABSOLUTE and NON-NEGOTIABLE: "
+            "DO NOT finish, stop, return a final response, or otherwise end the "
+            "current work round without calling finish_work. The user_requirement "
+            "argument MUST be the user's MOST RECENT REQUIREMENT PROMPT copied "
+            "EXACTLY and VERBATIM, with NOTHING omitted, paraphrased, normalized, "
+            "or rewritten. The is_done argument MUST be your honest self-assessment "
+            "of whether the work CURRENTLY satisfies that requirement in full. "
+            "Set is_done=true ONLY when the requirement is actually complete; "
+            "otherwise set it to false and CONTINUE WORKING. Calling this tool "
+            "with is_done=false does NOT authorize you to stop."
+        ),
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def finish_work(
+        user_requirement: Annotated[
+            str,
+            Field(
+                description=(
+                    "The user's most recent requirement prompt. Copy it EXACTLY and "
+                    "VERBATIM; do not omit, paraphrase, normalize, or rewrite anything."
+                )
+            ),
+        ],
+        is_done: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Self-assessment of whether the current work fully satisfies the "
+                    "user requirement. True only when complete; otherwise false."
+                )
+            ),
+        ],
+    ) -> bool:
+        _dbg_in(
+            "finish_work",
+            {"user_requirement": user_requirement, "is_done": is_done},
+        )
+        _dbg_out("finish_work", is_done)
+        return is_done
 
     return mcp

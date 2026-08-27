@@ -10,9 +10,11 @@
   ],
   "tools": [
     "apply_patch",
+    "batch_call",
     "bash",
     "browse_dir",
     "edit",
+    "finish_work",
     "glob",
     "grep",
     "read",

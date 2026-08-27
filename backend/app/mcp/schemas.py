@@ -19,7 +19,6 @@ CORE_TOOL_NAMES = frozenset(
     {"read", "write", "edit", "glob", "grep", "bash", "apply_patch"}
 )
 
-
 def _schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {
         "type": "object",
@@ -27,6 +26,37 @@ def _schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
         "required": required,
         "additionalProperties": False,
     }
+
+
+BATCH_TOOL_DEFINITION = ToolDefinition(
+    "batch_call",
+    "Call multiple MCP tools in one request, preserving input order and returning each result independently.",
+    _schema(
+        {
+            "calls": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "arguments": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                    },
+                    "required": ["name", "arguments"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        ["calls"],
+    ),
+    {
+        "type": "object",
+        "properties": {"results": {"type": "array"}},
+        "required": ["results"],
+    },
+)
 
 
 CORE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
@@ -109,4 +139,7 @@ CORE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
     ),
 )
 
-TOOL_DEFINITIONS = {definition.name: definition for definition in CORE_TOOL_DEFINITIONS}
+TOOL_DEFINITIONS = {
+    definition.name: definition
+    for definition in (*CORE_TOOL_DEFINITIONS, BATCH_TOOL_DEFINITION)
+}
