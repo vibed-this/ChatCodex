@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Bot, Check, ChevronRight, Cloud,
+  Bot, ChevronDown, ChevronRight, Check, Cloud,
   Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
   LockKeyhole, LogOut, Menu, Moon, Network, PanelLeftClose, PanelLeftOpen, Play, RefreshCw, Save,
   Settings2, Square, Sun, Zap, Search, Trash2, X,
@@ -256,27 +256,44 @@ function Settings() {
   </Page>;
 }
 
+type AuditRecord = { timestamp: string; tool: string; arguments: Record<string, unknown>; success: boolean; durationMs: number; result: unknown; error: string | null; callId?: string; parentCallId?: string | null };
+
 function McpAudit() {
-  const [data, setData] = useState<{ records: Array<{ timestamp: string; tool: string; arguments: Record<string, unknown>; success: boolean; durationMs: number; result: unknown; error: string | null }>; count: number; maxRecords: number } | null>(null);
+  const [data, setData] = useState<{ records: AuditRecord[]; count: number; maxRecords: number } | null>(null);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<{ timestamp: string; tool: string; arguments: Record<string, unknown>; success: boolean; durationMs: number; result: unknown; error: string | null } | null>(null);
+  const [selected, setSelected] = useState<AuditRecord | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = () => api.mcpAudit("").then((value) => { setData(value); }).catch((e) => { setError(String(e)); });
   useEffect(() => { load(); const timer = setInterval(load, 1500); return () => { clearInterval(timer); }; }, []);
-  const records = (data?.records ?? []).filter((record) => {
+  const matches = (record: AuditRecord) => {
     const needle = query.trim().toLowerCase();
     return !needle || record.tool.toLowerCase().includes(needle) || JSON.stringify(record.arguments).toLowerCase().includes(needle) || JSON.stringify(record.result).toLowerCase().includes(needle) || (record.error ?? "").toLowerCase().includes(needle);
-  });
-  async function clear() { setBusy(true); setError(""); try { await api.clearMcpAudit(""); setSelected(null); await load(); } catch (e) { setError(String(e)); } finally { setBusy(false); } }
-  return <Page title="MCP 调用审计" description="查看当前 Gateway 进程内最近的 MCP tool 调用；不持久化，最多保留 1000 条。" actions={<Button variant="outline" onClick={clear} disabled={busy || !data?.count}><Trash2 className="h-4 w-4" />清空</Button>}>
+  };
+  const allRecords = data?.records ?? [];
+  const childrenByParent = new Map<string, AuditRecord[]>();
+  for (const record of allRecords) {
+    if (!record.parentCallId || !matches(record)) continue;
+    const children = childrenByParent.get(record.parentCallId) ?? [];
+    children.push(record);
+    childrenByParent.set(record.parentCallId, children);
+  }
+  for (const children of childrenByParent.values()) children.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const roots = allRecords.filter((record) => !record.parentCallId && (matches(record) || (record.callId ? (childrenByParent.get(record.callId) ?? []).length > 0 : false)));
+  function toggle(record: AuditRecord) {
+    if (!record.callId) return;
+    setExpanded((current) => { const next = new Set(current); if (next.has(record.callId!)) next.delete(record.callId!); else next.add(record.callId!); return next; });
+  }
+  async function clear() { setBusy(true); setError(""); try { await api.clearMcpAudit(""); setSelected(null); setExpanded(new Set()); await load(); } catch (e) { setError(String(e)); } finally { setBusy(false); } }
+  return <Page title="MCP 调用审计" description="查看当前 Gateway 进程内最近的 MCP tool 调用；batch_call 会将内部调用折叠到批次中。" actions={<Button variant="outline" onClick={clear} disabled={busy || !data?.count}><Trash2 className="h-4 w-4" />清空</Button>}>
     {error && <Alert>{error}</Alert>}
     <Card>
       <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div><CardTitle>调用记录</CardTitle><CardDescription>{data?.count ?? 0} / {data?.maxRecords ?? 1000} 条，按最新调用排序</CardDescription></div><div className="relative sm:ml-auto sm:w-80"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input aria-label="筛选 MCP 调用" value={query} onChange={(e) => { setQuery(e.target.value); }} placeholder="按 tool、参数或结果筛选" className="pl-9" /></div></div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div><CardTitle>调用记录</CardTitle><CardDescription>{data?.count ?? 0} / {data?.maxRecords ?? 1000} 条原始记录，界面按批次聚合</CardDescription></div><div className="relative sm:ml-auto sm:w-80"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input aria-label="筛选 MCP 调用" value={query} onChange={(e) => { setQuery(e.target.value); }} placeholder="按 tool、参数或结果筛选" className="pl-9" /></div></div>
       </CardHeader>
       <CardContent className="p-0">
-        {records.length === 0 ? <Empty icon={Search} title={query ? "没有匹配记录" : "暂无 MCP tool 调用"} detail={query ? "调整筛选条件后重试。" : "调用 MCP tool 后，记录会立即出现在这里。"} /> : <div className="divide-y">{records.map((record, index) => <button type="button" key={`${record.timestamp}-${record.tool}-${index}`} onClick={() => { setSelected(record); }} className={cn("block w-full px-5 py-4 text-left transition-colors hover:bg-accent/60", selected === record && "bg-accent")}><div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><div className="flex items-center gap-2"><Badge variant={record.success ? "success" : "destructive"}>{record.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(record.tool, record.arguments)}</code></div><p className="mt-1 truncate text-xs text-muted-foreground">{formatAuditTime(record.timestamp)}</p></div><span className="text-xs text-muted-foreground">{record.durationMs.toFixed(1)} ms</span></div></button>)}</div>}
+        {roots.length === 0 ? <Empty icon={Search} title={query ? "没有匹配记录" : "暂无 MCP tool 调用"} detail={query ? "调整筛选条件后重试。" : "调用 MCP tool 后，记录会立即出现在这里。"} /> : <div className="divide-y">{roots.map((record, index) => { const children = record.callId ? (childrenByParent.get(record.callId) ?? []) : []; const isExpanded = !!record.callId && expanded.has(record.callId); return <div key={`${record.timestamp}-${record.tool}-${index}`}><div className="flex items-center"><button type="button" onClick={() => { setSelected(record); }} className={cn("min-w-0 flex-1 px-5 py-4 text-left transition-colors hover:bg-accent/60", selected === record && "bg-accent")}><div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><div className="flex items-center gap-2"><Badge variant={record.success ? "success" : "destructive"}>{record.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(record.tool, record.arguments)}</code>{children.length > 0 && <span className="text-xs text-muted-foreground">{children.length} 个子调用</span>}</div><p className="mt-1 truncate text-xs text-muted-foreground">{formatAuditTime(record.timestamp)}</p></div><span className="text-xs text-muted-foreground">{record.durationMs.toFixed(1)} ms</span></div></button>{children.length > 0 && <Button variant="ghost" size="icon" className="mr-3" aria-label={isExpanded ? "收起子调用" : "展开子调用"} onClick={() => { toggle(record); }}>{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>}</div>{isExpanded && <div className="border-t bg-muted/20">{children.map((child, childIndex) => <button type="button" key={`${child.timestamp}-${child.tool}-${childIndex}`} onClick={() => { setSelected(child); }} className={cn("flex w-full items-center gap-3 border-b px-5 py-3 pl-12 text-left last:border-b-0 hover:bg-accent/60", selected === child && "bg-accent")}><span className="text-muted-foreground">↳</span><Badge variant={child.success ? "success" : "destructive"}>{child.success ? "成功" : "失败"}</Badge><code className="min-w-0 flex-1 truncate text-xs font-semibold">{auditTitle(child.tool, child.arguments)}</code><span className="text-xs text-muted-foreground">{child.durationMs.toFixed(1)} ms</span></button>)}</div>}</div>; })}</div>}
       </CardContent>
     </Card>
     {selected && <div className="fixed inset-0 z-50" role="presentation"><button type="button" aria-label="关闭详情" className="absolute inset-0 bg-black/30" onClick={() => { setSelected(null); }} /><aside role="dialog" aria-modal="true" aria-label="MCP 调用详情" className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l bg-background shadow-2xl"><div className="flex items-start gap-4 border-b p-5"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant={selected.success ? "success" : "destructive"}>{selected.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(selected.tool, selected.arguments)}</code></div><p className="mt-1 text-xs text-muted-foreground">{formatAuditTime(selected.timestamp)} · {selected.durationMs.toFixed(1)} ms</p></div><Button variant="ghost" size="icon" aria-label="关闭详情" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></div><div className="flex-1 space-y-5 overflow-y-auto p-5"><AuditJson title="Arguments" value={selected.arguments} /><AuditJson title="Result" value={selected.result} />{selected.error && <AuditJson title="Error" value={selected.error} />}</div></aside></div>}

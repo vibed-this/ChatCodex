@@ -6,10 +6,13 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
+from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, TypeVar
+from uuid import uuid4
 
 MAX_RECORDS = 1000
 T = TypeVar("T")
+_BATCH_CALL_ID: ContextVar[str | None] = ContextVar("batch_call_id", default=None)
 
 
 def _jsonable(value: Any) -> Any:
@@ -28,6 +31,8 @@ class McpToolCallRecord:
     duration_ms: float
     result: Any = None
     error: str | None = None
+    call_id: str = ""
+    parent_call_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -38,6 +43,8 @@ class McpToolCallRecord:
             "durationMs": self.duration_ms,
             "result": self.result,
             "error": self.error,
+            "callId": self.call_id,
+            "parentCallId": self.parent_call_id,
         }
 
 
@@ -70,10 +77,15 @@ async def record_mcp_tool_call(
     name: str,
     arguments: dict[str, Any],
     call_next: Callable[[str, dict[str, Any]], Awaitable[T]],
+    *,
+    call_id: str | None = None,
 ) -> T:
     started = time.perf_counter()
     timestamp = datetime.now(timezone.utc).isoformat()
     safe_arguments = _jsonable(arguments)
+    current_call_id = call_id or uuid4().hex
+    parent_call_id = _BATCH_CALL_ID.get()
+    token = _BATCH_CALL_ID.set(current_call_id) if name == "batch_call" else None
     try:
         result = await call_next(name, arguments)
     except Exception as exc:
@@ -85,9 +97,14 @@ async def record_mcp_tool_call(
                 success=False,
                 duration_ms=round((time.perf_counter() - started) * 1000, 3),
                 error=str(exc),
+                call_id=current_call_id,
+                parent_call_id=parent_call_id,
             )
         )
         raise
+    finally:
+        if token is not None:
+            _BATCH_CALL_ID.reset(token)
     audit_log.append(
         McpToolCallRecord(
             timestamp=timestamp,
@@ -98,6 +115,8 @@ async def record_mcp_tool_call(
                 or (isinstance(result, dict) and result.get("isError", False))
             ),
             duration_ms=round((time.perf_counter() - started) * 1000, 3),
+            call_id=current_call_id,
+            parent_call_id=parent_call_id,
             result=_jsonable(
                 result.model_dump(mode="json")
                 if hasattr(result, "model_dump")

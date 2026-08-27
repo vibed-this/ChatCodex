@@ -6,6 +6,10 @@ from typing import Any
 from app.mcp.audit import MAX_RECORDS, McpAuditLog, McpToolCallRecord, record_mcp_tool_call
 
 
+async def _result(name: str) -> dict[str, Any]:
+    return {"tool": name}
+
+
 class McpAuditTests(unittest.IsolatedAsyncioTestCase):
     def test_audit_log_is_bounded_and_newest_first(self) -> None:
         log = McpAuditLog()
@@ -46,3 +50,18 @@ class McpAuditTests(unittest.IsolatedAsyncioTestCase):
         records = log.list()
         self.assertFalse(records[0]["success"])
         self.assertEqual(records[0]["error"], "boom")
+
+
+    async def test_batch_children_have_parent_call_id(self) -> None:
+        log = McpAuditLog()
+
+        async def nested(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            await record_mcp_tool_call(log, "read", {"path": "a.txt"}, lambda n, a: _result(n))
+            return {"results": []}
+
+        await record_mcp_tool_call(log, "batch_call", {"calls": []}, nested)
+        records = log.list()
+        batch = next(record for record in records if record["tool"] == "batch_call")
+        child = next(record for record in records if record["tool"] == "read")
+        assert batch["callId"]
+        assert child["parentCallId"] == batch["callId"]
