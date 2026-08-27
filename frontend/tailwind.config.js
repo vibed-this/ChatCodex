@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class", '[data-theme="dark"]'],
-  content: ["./index.html", "./widgets/**/*.html", "./panel/**/*.html", "./src/**/*.{ts,tsx}", "./widgets/**/*.{ts,tsx}", "./panel/**/*.{ts,tsx}"],
+  content: ["./index.html", "./panel/**/*.html", "./src/**/*.{ts,tsx}", "./panel/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
