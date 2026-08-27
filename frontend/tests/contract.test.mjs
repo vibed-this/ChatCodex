@@ -7,6 +7,7 @@ if (!html.includes('/src/panel/main.tsx')) throw new Error("panel entrypoint mis
 const mainTsx = fs.readFileSync(path.join(root, "src", "panel", "main.tsx"), "utf8");
 if (!mainTsx.includes('if (record.tool === "batch_call" && children.length > 0) toggle(record); else setSelected(record);')) throw new Error("batch_call rows must expand instead of opening details");
 if (!mainTsx.includes('function formatDuration(ms: number): string')) throw new Error("duration formatter missing");
+if (mainTsx.includes('StatusLine label="����·��"') || mainTsx.includes('StatusLine label="MCP Tunnel"')) throw new Error("sidebar tunnel status card must be removed");
 if (!mainTsx.includes('if (value < 1000) return `${value.toFixed(1)} ms`;')) throw new Error("duration formatter must use milliseconds for sub-second values");
 if (!mainTsx.includes('if (value < 60_000) return `${(value / 1000).toFixed(2)} s`;')) throw new Error("duration formatter must use seconds");
 if (fs.existsSync(path.join(root, "widgets"))) throw new Error("widgets directory must be removed");
