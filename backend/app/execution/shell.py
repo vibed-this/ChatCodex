@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from ._common import *  # noqa: F403  # noqa: F403
@@ -56,43 +57,38 @@ class ShellService:
             if os.name == "nt":
                 creation_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             if is_pwsh:
-                proc = subprocess.Popen(
-                    [
-                        shell,
-                        "-NoLogo",
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        command,
-                    ],
+                proc = await asyncio.create_subprocess_exec(
+                    shell,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
                     cwd=cwd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                     **creation_kwargs,
                 )
             else:
-                proc = subprocess.Popen(
+                proc = await asyncio.create_subprocess_shell(
                     command,
                     cwd=cwd,
-                    shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                     executable=shell or None,
                     **creation_kwargs,
                 )
             try:
-                out, _ = proc.communicate(timeout=(eff_timeout + 100) / 1000.0)
-            except subprocess.TimeoutExpired:
-                _terminate_process_tree(proc)
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=eff_timeout / 1000.0
+                )
+                out = (stdout or b"").decode("utf-8", errors="replace")
+            except TimeoutError:
+                await _terminate_process_tree(proc)
                 try:
-                    out, _ = proc.communicate(timeout=3)
-                except (subprocess.TimeoutExpired, OSError):
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
+                    out = (stdout or b"").decode("utf-8", errors="replace")
+                except (TimeoutError, OSError):
                     out = ""
                 meta = f"shell tool terminated command after exceeding timeout {eff_timeout} ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds."
                 # tail/truncate
@@ -127,6 +123,13 @@ class ShellService:
                     "stderr": "",
                     "truncated": True,
                 }
+            except asyncio.CancelledError:
+                await _terminate_process_tree(proc)
+                try:
+                    await asyncio.wait_for(proc.communicate(), timeout=3)
+                except (TimeoutError, OSError):
+                    pass
+                raise
             code = proc.returncode
             raw = out or ""
             # truncate handling similar to opencode

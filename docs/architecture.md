@@ -25,7 +25,7 @@ Execution capabilities are transport-independent. `ExecutionService` composes th
 
 - `filesystem.py`: read/write/edit/delete/image/directory operations.
 - `search.py`: glob/grep.
-- `shell.py`: local shell execution, timeout, output limiting, and process-tree termination.
+- `shell.py`: non-blocking local shell execution, timeout, output limiting, cancellation, and process-tree termination.
 - `patch.py`: patch parse/validation/materialization/commit.
 - `_common.py`: capability-local algorithms and shared constants.
 - `errors.py`: stable execution error taxonomy.

@@ -1,6 +1,7 @@
 # Copyright (c) 2026 ChatCodex contributors.
 from __future__ import annotations
 
+import asyncio
 import base64
 import difflib
 import fnmatch
@@ -911,17 +912,24 @@ def _tail_output(text: str, max_lines: int, max_bytes: int) -> str:
     return "\n".join(out)
 
 
-def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+async def _terminate_process_tree(proc: Any) -> None:
     """Terminate the shell and all children spawned by it."""
-    if proc.poll() is not None:
+    if proc.returncode is not None:
         return
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        try:
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill",
+                "/PID",
+                str(proc.pid),
+                "/T",
+                "/F",
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(killer.wait(), timeout=3)
+        except (TimeoutError, OSError):
+            proc.kill()
         return
     try:
         killpg = getattr(os, "killpg", None)
