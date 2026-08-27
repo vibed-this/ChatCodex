@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
+from mcp import types as mtypes
 from app.config import Settings
 from app.mcp.schemas import CORE_TOOL_NAMES, TOOL_DEFINITIONS
 from app.mcp.server import build_mcp
@@ -63,14 +64,6 @@ class FakeExecutionService:
     async def update_plan(self, *args: Any) -> dict[str, Any]:
         return {"updated": True, "explanation": "", "plan": []}
 
-    async def view_image(self, *args: Any) -> dict[str, Any]:
-        return {
-            "path": args[0],
-            "mimeType": "image/png",
-            "sizeBytes": 0,
-            "dataBase64": "",
-        }
-
     async def browse_dir(self, *args: Any) -> dict[str, Any]:
         return {"path": args[0] if args else "", "parent": None, "entries": []}
 
@@ -103,6 +96,7 @@ class ToolContractTests(unittest.IsolatedAsyncioTestCase):
         assert names == sorted(baseline["tools"])
         assert set(baseline["core_tools"]) == CORE_TOOL_NAMES
         assert set(names) & CORE_TOOL_NAMES == CORE_TOOL_NAMES
+        assert "view_image" not in names
 
     async def test_contract_does_not_use_fastmcp_private_registry(self) -> None:
         source = (Path(__file__).parents[1] / "app" / "mcp" / "server.py").read_text(
@@ -139,6 +133,36 @@ class ToolContractTests(unittest.IsolatedAsyncioTestCase):
             assert set(tools[name].inputSchema.get("properties", {})) == set(
                 definition.input_schema["properties"]
             )
+
+    async def test_read_image_returns_mcp_image_content(self) -> None:
+        class ImageExecutionService(FakeExecutionService):
+            async def read(self, *args: Any) -> dict[str, Any]:
+                return {
+                    "title": "image.png",
+                    "output": "Image read successfully",
+                    "mime": "image/png",
+                    "dataBase64": "iVBORw0KGgo=",
+                    "sizeBytes": 8,
+                }
+
+        server = build_mcp(
+            Settings(mcp_auth_mode="noauth"), cast("Any", ImageExecutionService())
+        )
+        result = await server.call_tool(
+            "read", {"filePath": "image.png"}
+        )
+        assert isinstance(result, mtypes.CallToolResult)
+        content = result.content
+        assert any(
+            isinstance(item, mtypes.ImageContent)
+            for item in content
+        )
+        assert result.structuredContent == {
+            "title": "image.png",
+            "output": "Image read successfully",
+            "mime": "image/png",
+            "sizeBytes": 8,
+        }
 
     async def test_finish_work_returns_is_done_verbatim(self) -> None:
         server = build_mcp(

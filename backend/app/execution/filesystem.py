@@ -36,6 +36,18 @@ class FilesystemService:
     def __init__(self, settings: Any) -> None:
         self.settings = settings
 
+    @staticmethod
+    def _detect_image_mime(sample: bytes) -> str | None:
+        if sample.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if sample.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif"
+        if sample.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if len(sample) >= 12 and sample[:4] == b"RIFF" and sample[8:12] == b"WEBP":
+            return "image/webp"
+        return None
+
     async def read(
         self, filePath: str, offset: Optional[int] = None, limit: Optional[int] = None
     ) -> dict[str, Any]:
@@ -130,7 +142,10 @@ class FilesystemService:
             msg = "read_error"
             raise ExecutionError(msg, str(e))
         mime = mimetypes.guess_type(resolved)[0] or ""
-        is_image = mime in SUPPORTED_IMAGE_MIMES
+        detected_image_mime = self._detect_image_mime(sample)
+        is_image = mime in SUPPORTED_IMAGE_MIMES or detected_image_mime is not None
+        if detected_image_mime is not None:
+            mime = detected_image_mime
         is_pdf = mime == "application/pdf"
         if is_image or is_pdf:
             try:
@@ -492,24 +507,6 @@ class FilesystemService:
             "output": "Deleted successfully.",
             "path": resolved,
             "deleted": True,
-        }
-
-    async def view_image(self, path: str) -> dict[str, Any]:
-        resolved = _resolve_absolute(path)
-        if not os.path.exists(resolved):
-            msg = "not_found"
-            raise ExecutionError(msg, f"File not found: {resolved}")
-        mime = mimetypes.guess_type(resolved)[0] or "application/octet-stream"
-        if not mime.startswith("image/"):
-            msg = "not_an_image"
-            raise ExecutionError(msg, f"unsupported image type: {mime}")
-        with open(resolved, "rb") as f:
-            raw = f.read()
-        return {
-            "path": resolved,
-            "mimeType": mime,
-            "sizeBytes": len(raw),
-            "dataBase64": base64.b64encode(raw).decode(),
         }
 
     async def browse_dir(self, path: str = "") -> dict[str, Any]:

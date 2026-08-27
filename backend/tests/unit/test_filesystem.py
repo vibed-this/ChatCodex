@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,19 @@ from app.execution.errors import NotFoundError
 
 
 class FilesystemUnitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_extensionless_image_is_detected_from_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image-without-extension"
+            path.write_bytes(
+                base64.b64decode(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+                )
+            )
+            service = ExecutionService(Settings())
+            result = await service.read(str(path))
+            assert result["mime"] == "image/png"
+            assert result["dataBase64"]
+
     async def test_unicode_crlf_edit_and_atomic_write(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "unicode.txt"

@@ -64,9 +64,6 @@ class ExecutionService:
     async def apply_patch(self, patch_text: str) -> Any:
         return await self._invoke(self.patch.apply, patch_text)
 
-    async def view_image(self, path: str) -> Any:
-        return await self._invoke(self.filesystem.view_image, path)
-
     async def browse_dir(self, path: str = "") -> Any:
         return await self._invoke(self.filesystem.browse_dir, path)
 
@@ -102,6 +99,5 @@ class ExecutionService:
             "grep",
             "bash",
             "apply_patch",
-            "view_image",
             "browse_dir",
         ]

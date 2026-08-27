@@ -205,6 +205,7 @@ def build_mcp(
 
     @register_tool(
         "read",
+        structured_output=False,
         meta={
             "openai/toolInvocation/invoking": "Reading",
             "openai/toolInvocation/invoked": "Read",
@@ -221,11 +222,25 @@ def build_mcp(
         filePath: str,
         offset: int | None = None,
         limit: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | mtypes.CallToolResult:
         _dbg_in("read", {"filePath": filePath, "offset": offset, "limit": limit})
         try:
             result: dict[str, Any] = await orch.read(filePath, offset, limit)
             _dbg_out("read", result)
+            mime = result.get("mime")
+            data = result.get("dataBase64")
+            if isinstance(mime, str) and mime.startswith("image/") and isinstance(data, str):
+                return mtypes.CallToolResult(
+                    content=[
+                        mtypes.TextContent(
+                            type="text", text=f"Read image: {result.get('title', filePath)}"
+                        ),
+                        mtypes.ImageContent(type="image", data=data, mimeType=mime),
+                    ],
+                    structuredContent={
+                        key: value for key, value in result.items() if key != "dataBase64"
+                    },
+                )
             return result
         except Exception as exc:
             _dbg_err("read", exc)
@@ -439,44 +454,6 @@ def build_mcp(
             return result
         except Exception as exc:
             _dbg_err("update_plan", exc)
-            raise as_tool_error(exc) from exc
-
-    @register_tool(
-        "view_image",
-        description="Open a local image.",
-        annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
-        },
-    )
-    async def view_image(
-        ctx: Context[Any, Any, Any], path: str
-    ) -> mtypes.CallToolResult:
-        _dbg_in("view_image", {"path": path})
-        try:
-            data = await orch.view_image(path)
-            _dbg_out(
-                "view_image",
-                {
-                    k: v if k != "dataBase64" else f"<base64 {len(v)} chars>"
-                    for k, v in data.items()
-                },
-            )
-            return mtypes.CallToolResult(
-                content=[
-                    mtypes.TextContent(
-                        type="text", text=f"Opened image: {data['path']}"
-                    ),
-                    mtypes.ImageContent(
-                        type="image", data=data["dataBase64"], mimeType=data["mimeType"]
-                    ),
-                ],
-                structuredContent={k: v for k, v in data.items() if k != "dataBase64"},
-            )
-        except Exception as exc:
-            _dbg_err("view_image", exc)
             raise as_tool_error(exc) from exc
 
     @register_tool(
