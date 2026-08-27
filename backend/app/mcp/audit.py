@@ -31,6 +31,7 @@ class McpToolCallRecord:
     duration_ms: float
     result: Any = None
     error: str | None = None
+    active: bool = False
     call_id: str = ""
     parent_call_id: str | None = None
 
@@ -43,6 +44,7 @@ class McpToolCallRecord:
             "durationMs": self.duration_ms,
             "result": self.result,
             "error": self.error,
+            "active": self.active,
             "callId": self.call_id,
             "parentCallId": self.parent_call_id,
         }
@@ -54,10 +56,23 @@ class McpAuditLog:
         default_factory=lambda: deque(maxlen=MAX_RECORDS)
     )
     _lock: Lock = field(default_factory=Lock)
+    _active: dict[str, McpToolCallRecord] = field(default_factory=dict)
 
     def append(self, record: McpToolCallRecord) -> None:
         with self._lock:
             self._records.append(record)
+
+    def start(self, record: McpToolCallRecord) -> None:
+        with self._lock:
+            self._active[record.call_id] = record
+
+    def finish(self, call_id: str) -> None:
+        with self._lock:
+            self._active.pop(call_id, None)
+
+    def active(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [record.as_dict() for record in self._active.values()]
 
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -66,6 +81,7 @@ class McpAuditLog:
     def clear(self) -> None:
         with self._lock:
             self._records.clear()
+            self._active.clear()
 
     def count(self) -> int:
         with self._lock:
@@ -86,9 +102,20 @@ async def record_mcp_tool_call(
     current_call_id = call_id or uuid4().hex
     parent_call_id = _BATCH_CALL_ID.get()
     token = _BATCH_CALL_ID.set(current_call_id) if name == "batch_call" else None
+    audit_log.start(McpToolCallRecord(
+        timestamp=timestamp,
+        tool=name,
+        arguments=safe_arguments,
+        success=False,
+        duration_ms=0,
+        call_id=current_call_id,
+        parent_call_id=parent_call_id,
+        active=True,
+    ))
     try:
         result = await call_next(name, arguments)
     except Exception as exc:
+        audit_log.finish(current_call_id)
         audit_log.append(
             McpToolCallRecord(
                 timestamp=timestamp,
@@ -97,6 +124,7 @@ async def record_mcp_tool_call(
                 success=False,
                 duration_ms=round((time.perf_counter() - started) * 1000, 3),
                 error=str(exc),
+                active=False,
                 call_id=current_call_id,
                 parent_call_id=parent_call_id,
             )
@@ -105,6 +133,7 @@ async def record_mcp_tool_call(
     finally:
         if token is not None:
             _BATCH_CALL_ID.reset(token)
+    audit_log.finish(current_call_id)
     audit_log.append(
         McpToolCallRecord(
             timestamp=timestamp,

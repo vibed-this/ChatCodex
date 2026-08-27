@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from typing import Any
 
@@ -65,3 +66,25 @@ class McpAuditTests(unittest.IsolatedAsyncioTestCase):
         child = next(record for record in records if record["tool"] == "read")
         assert batch["callId"]
         assert child["parentCallId"] == batch["callId"]
+
+    async def test_active_call_is_visible_until_completion(self) -> None:
+        log = McpAuditLog()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow(_: str, __: dict[str, Any]) -> dict[str, Any]:
+            started.set()
+            await release.wait()
+            return {"ok": True}
+
+        task = asyncio.create_task(record_mcp_tool_call(log, "slow", {}, slow))
+        await started.wait()
+        active = log.active()
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["tool"], "slow")
+        self.assertTrue(active[0]["active"])
+        self.assertEqual(log.list(), [])
+        release.set()
+        await task
+        self.assertEqual(log.active(), [])
+        self.assertFalse(log.list()[0]["active"])

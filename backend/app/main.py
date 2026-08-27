@@ -822,7 +822,7 @@ async def oauth_metadata_audit(p: Annotated[Principal, Depends(principal)]) -> A
 
 @app.get("/api/mcp-audit")
 async def get_mcp_audit(p: Annotated[Principal, Depends(principal)]) -> Any:
-    return {"records": AUDIT_LOG.list(), "count": AUDIT_LOG.count(), "maxRecords": 1000}
+    return {"records": AUDIT_LOG.list(), "active": AUDIT_LOG.active(), "count": AUDIT_LOG.count(), "maxRecords": 1000}
 
 
 @app.delete("/api/mcp-audit")
