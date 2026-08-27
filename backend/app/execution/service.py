@@ -70,6 +70,12 @@ class ExecutionService:
     async def shell_wait(self, shell_id: str, timeout: int | None = None) -> Any:
         return await self._invoke(self.shell.wait, shell_id, timeout)
 
+    async def shell_list(self) -> Any:
+        return await self._invoke(self.shell.list_background)
+
+    async def shell_cancel_wait(self, wait_id: str, reason: str = "") -> Any:
+        return await self._invoke(self.shell.cancel_wait, wait_id, reason)
+
     async def close(self) -> None:
         await self.shell.close()
 

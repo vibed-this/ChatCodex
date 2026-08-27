@@ -7,6 +7,7 @@ import asyncio
 import dataclasses
 import time
 import uuid
+from contextlib import suppress
 from typing import Any
 
 from ._common import *  # noqa: F403  # noqa: F403
@@ -31,6 +32,7 @@ class ShellService:
     def __init__(self, settings: Any) -> None:
         self.settings = settings
         self._background: dict[str, BackgroundShell] = {}
+        self._waits: dict[str, BackgroundShellWait] = {}
         self._background_lock = asyncio.Lock()
 
     async def spawn(self, command: str, workdir: Optional[str] = None) -> dict[str, Any]:
@@ -78,6 +80,7 @@ class ShellService:
     async def kill(self, shell_id: str) -> dict[str, Any]:
         record = await self._get_background(shell_id)
         if record.proc.returncode is None:
+            record.termination_reason = "user_terminated_process"
             await _terminate_process_tree(record.proc)
             try:
                 await asyncio.wait_for(record.proc.wait(), timeout=3)
@@ -89,15 +92,75 @@ class ShellService:
         if timeout is not None and (isinstance(timeout, bool) or timeout < 0):
             raise ExecutionError("invalid_timeout", "Timeout must be a non-negative integer.")
         record = await self._get_background(shell_id)
-        if record.proc.returncode is None:
-            try:
-                if timeout is None:
-                    await record.proc.wait()
-                else:
-                    await asyncio.wait_for(record.proc.wait(), timeout=timeout / 1000.0)
-            except TimeoutError:
-                return self._background_status(record, timed_out=True)
-        return self._background_status(record)
+        wait_id = uuid.uuid4().hex
+        wait_record = BackgroundShellWait(wait_id, record, timeout)
+        wait_record.task = asyncio.create_task(self._perform_wait(wait_record))
+        async with self._background_lock:
+            self._waits[wait_id] = wait_record
+        try:
+            return await asyncio.shield(wait_record.task)
+        except asyncio.CancelledError:
+            if not wait_record.task.done():
+                wait_record.task.cancel()
+            with suppress(asyncio.CancelledError):
+                await wait_record.task
+            raise
+        finally:
+            async with self._background_lock:
+                self._waits.pop(wait_id, None)
+
+    async def cancel_wait(self, wait_id: str, reason: str = "") -> dict[str, Any]:
+        async with self._background_lock:
+            wait_record = self._waits.get(wait_id)
+        if wait_record is None:
+            raise ExecutionError("not_found", f"Background shell wait does not exist: {wait_id}")
+        wait_record.cancel_reason = reason.strip() or "User terminated waiting."
+        task = wait_record.task
+        if task is None:
+            raise ExecutionError("internal_error", "Background shell wait task is not initialized")
+        if not task.done():
+            task.cancel()
+        return await task
+
+    async def list_background(self) -> dict[str, Any]:
+        async with self._background_lock:
+            self._prune_finished_background_locked()
+            records = [record for record in self._background.values() if record.proc.returncode is None]
+            waits = list(self._waits.values())
+        return {
+            "shells": [self._background_status(record) for record in records],
+            "waits": [
+                {
+                    "waitId": wait.wait_id,
+                    "shellId": wait.shell.shell_id,
+                    "timeout": wait.timeout,
+                    "startedAt": wait.started_at,
+                    "cancelable": wait.task is not None and not wait.task.done(),
+                }
+                for wait in waits
+            ],
+        }
+
+    async def _perform_wait(self, wait: "BackgroundShellWait") -> dict[str, Any]:
+        record = wait.shell
+        try:
+            if record.proc.returncode is not None:
+                return self._background_status(
+                    record, termination_reason=record.termination_reason or "process_exit"
+                )
+            if wait.timeout is None:
+                await record.proc.wait()
+            else:
+                await asyncio.wait_for(record.proc.wait(), timeout=wait.timeout / 1000.0)
+            return self._background_status(
+                record, termination_reason=record.termination_reason or "process_exit"
+            )
+        except TimeoutError:
+            return self._background_status(record, timed_out=True, termination_reason="wait_timeout")
+        except asyncio.CancelledError:
+            return self._background_status(
+                record, termination_reason="user_terminated_wait", termination_detail=wait.cancel_reason
+            )
 
     async def _get_background(self, shell_id: str) -> "BackgroundShell":
         async with self._background_lock:
@@ -143,10 +206,22 @@ class ShellService:
                 pass
 
     @staticmethod
-    def _background_status(record: "BackgroundShell", timed_out: bool = False) -> dict[str, Any]:
+    def _background_status(
+        record: "BackgroundShell",
+        timed_out: bool = False,
+        termination_reason: str | None = None,
+        termination_detail: str | None = None,
+    ) -> dict[str, Any]:
+        reason = termination_reason or record.termination_reason or (
+            "process_exit" if record.proc.returncode is not None else "running"
+        )
         return {"shellId": record.shell_id, "pid": record.proc.pid, "command": record.command,
                 "outputPath": record.output_path, "running": record.proc.returncode is None,
-                "exitCode": record.proc.returncode, "timedOut": timed_out}
+                "exitCode": record.proc.returncode, "timedOut": timed_out,
+                "terminationReason": reason,
+                **({"terminationDetail": termination_detail} if termination_detail else {}),
+                **({"terminationDetail": record.termination_detail} if record.termination_detail and not termination_detail else {}),
+                "startedAt": record.started_at, "finishedAt": record.finished_at}
 
     def _new_output_path(self) -> str:
         self._prune_finished_background_locked()
@@ -345,3 +420,15 @@ class BackgroundShell:
     output_handle: Any
     started_at: float
     finished_at: float | None = None
+    termination_reason: str | None = None
+    termination_detail: str | None = None
+
+
+@dataclasses.dataclass
+class BackgroundShellWait:
+    wait_id: str
+    shell: BackgroundShell
+    timeout: int | None
+    started_at: float = dataclasses.field(default_factory=time.time)
+    task: asyncio.Task[dict[str, Any]] | None = None
+    cancel_reason: str = ""

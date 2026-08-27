@@ -42,6 +42,8 @@ The former `execution/backend.py` implementation has been removed.
 
 `shell_wait(shellId, timeout)` waits for termination. `timeout` is in milliseconds; if it expires, the tool returns immediately and leaves the shell running. `shell_kill(shellId)` terminates the shell and its process tree. `batch_call` can be used to issue several `shell_spawn` calls first and then several `shell_wait` calls, allowing multiple background tasks to start without waiting between starts.
 
+The admin panel exposes `/api/shells` for the currently running background shells and active waits. Administrators can terminate a shell process or cancel an individual wait without killing its shell; wait cancellation may carry an optional reason. `shell_wait` reports a `terminationReason` of `process_exit`, `wait_timeout`, `user_terminated_process`, or `user_terminated_wait`; process exits include the exit code, and user-terminated waits include `terminationDetail`.
+
 ## Persistence layer
 
 `app/persistence/database.py` owns the SQLite connection and schema. Higher-level repositories isolate specific persistence concerns:

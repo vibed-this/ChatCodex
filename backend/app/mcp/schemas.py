@@ -77,12 +77,38 @@ SHELL_KILL_TOOL_DEFINITION = ToolDefinition(
 
 SHELL_WAIT_TOOL_DEFINITION = ToolDefinition(
     "shell_wait",
-    "Wait for a background shell to terminate. timeout is optional milliseconds; when it expires, return immediately without killing the shell. The result always includes outputPath so the AI can read the temporary output file directly.",
+    "Wait for a background shell to terminate. timeout is optional milliseconds; when it expires, return immediately without killing the shell. The result includes terminationReason: process_exit (with exitCode), wait_timeout, user_terminated_process, or user_terminated_wait (with terminationDetail), plus outputPath so the AI can read the temporary output file directly.",
     _schema(
         {"shellId": {"type": "string"}, "timeout": {"type": ["integer", "null"]}},
         ["shellId"],
     ),
-    {"type": "object", "additionalProperties": True},
+    {
+        "type": "object",
+        "properties": {
+            "shellId": {"type": "string"},
+            "pid": {"type": ["integer", "null"]},
+            "command": {"type": "string"},
+            "outputPath": {"type": "string"},
+            "running": {"type": "boolean"},
+            "exitCode": {"type": ["integer", "null"]},
+            "timedOut": {"type": "boolean"},
+            "terminationReason": {
+                "type": "string",
+                "enum": [
+                    "running",
+                    "process_exit",
+                    "wait_timeout",
+                    "user_terminated_process",
+                    "user_terminated_wait",
+                ],
+            },
+            "terminationDetail": {"type": "string"},
+            "startedAt": {"type": "number"},
+            "finishedAt": {"type": ["number", "null"]},
+        },
+        "required": ["shellId", "outputPath", "running", "exitCode", "timedOut", "terminationReason"],
+        "additionalProperties": False,
+    },
 )
 
 

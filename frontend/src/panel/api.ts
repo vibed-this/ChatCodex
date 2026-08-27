@@ -21,6 +21,9 @@ export const api = {
   settings: (token: string) => req(token, "/api/settings"),
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
   mcpAudit: (token: string) => req(token, "/api/mcp-audit"),
+  shells: (token: string) => req(token, "/api/shells"),
+  killShell: (token: string, shellId: string) => req(token, `/api/shells/${encodeURIComponent(shellId)}/kill`, { method: "POST" }),
+  cancelShellWait: (token: string, waitId: string, reason = "") => req(token, `/api/shell-waits/${encodeURIComponent(waitId)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   clearMcpAudit: (token: string) => req(token, "/api/mcp-audit", { method: "DELETE" }),
   setSettings: (token: string, kv: Record<string, any>) =>
     req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),

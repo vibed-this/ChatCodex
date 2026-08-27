@@ -4,7 +4,7 @@ import {
   Bot, ChevronDown, ChevronRight, Check, Cloud,
   Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
   LockKeyhole, LogOut, Menu, Moon, Network, PanelLeftClose, PanelLeftOpen, Play, RefreshCw, Save,
-  Settings2, Square, Sun, Zap, Search, Trash2, X,
+  Settings2, Square, Sun, Zap, Search, Trash2, X, Terminal,
 } from "lucide-react";
 import "../styles.css";
 import { api } from "./api";
@@ -18,12 +18,13 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "tunnel" | "settings" | "mcp-audit";
+type Tab = "overview" | "tunnel" | "settings" | "mcp-audit" | "shells";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "tunnel", label: "公网入口", icon: Network },
   { id: "settings", label: "设置", icon: Settings2 },
   { id: "mcp-audit", label: "MCP 调用审计", icon: Search },
+  { id: "shells", label: "Shell 任务", icon: Terminal },
 ];
 
 function App() {
@@ -88,6 +89,7 @@ function App() {
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
           {tab === "mcp-audit" && <McpAudit />}
+          {tab === "shells" && <Shells />}
         </main>
       </div>
     </div>
@@ -295,6 +297,49 @@ function McpAudit() {
     {selected && <div className="fixed inset-0 z-50" role="presentation"><button type="button" aria-label="关闭详情" className="absolute inset-0 bg-black/30" onClick={() => { setSelected(null); }} /><aside role="dialog" aria-modal="true" aria-label="MCP 调用详情" className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l bg-background shadow-2xl"><div className="flex items-start gap-4 border-b p-5"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant={selected.active ? "warning" : selected.success ? "success" : "destructive"}>{selected.active ? "执行中" : selected.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(selected.tool, selected.arguments)}</code></div><p className="mt-1 text-xs text-muted-foreground">{formatAuditTime(selected.timestamp)} · {formatDuration(selected.durationMs)}</p></div><Button variant="ghost" size="icon" aria-label="关闭详情" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></div><div className="flex-1 space-y-5 overflow-y-auto p-5"><AuditJson title="Arguments" value={selected.arguments} />{selected.active ? <Loading text="tool ��ִ����..." /> : <AuditJson title="Result" value={selected.result} />}{selected.error && <AuditJson title="Error" value={selected.error} />}</div></aside></div>}
   </Page>;
 }
+type ShellRecord = { shellId: string; pid: number | null; command: string; outputPath: string; running: boolean; exitCode: number | null; timedOut: boolean; terminationReason: string; terminationDetail?: string; startedAt: number; finishedAt: number | null };
+type ShellWait = { waitId: string; shellId: string; timeout: number | null; startedAt: number; cancelable: boolean };
+
+function Shells() {
+  const [data, setData] = useState<{ shells: ShellRecord[]; waits: ShellWait[] } | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [waitReason, setWaitReason] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<ShellWait | null>(null);
+  const load = () => api.shells("").then(setData).catch((e) => { setError(String(e)); });
+  useEffect(() => { load(); const timer = setInterval(load, 1000); return () => { clearInterval(timer); }; }, []);
+  async function kill(shellId: string) {
+    setBusy((current) => new Set(current).add(`shell:${shellId}`));
+    try { await api.killShell("", shellId); await load(); } catch (e) { setError(String(e)); }
+    finally { setBusy((current) => { const next = new Set(current); next.delete(`shell:${shellId}`); return next; }); }
+  }
+  async function cancelWait() {
+    if (!cancelTarget) return;
+    const wait = cancelTarget;
+    setBusy((current) => new Set(current).add(`wait:${wait.waitId}`));
+    try { await api.cancelShellWait("", wait.waitId, waitReason); setCancelTarget(null); setWaitReason(""); await load(); } catch (e) { setError(String(e)); }
+    finally { setBusy((current) => { const next = new Set(current); next.delete(`wait:${wait.waitId}`); return next; }); }
+  }
+  return <Page title="Shell 任务" description="查看当前后台 Shell、正在进行的 wait，并从管理页面安全终止进程或等待。">
+    {error && <Alert>{error}</Alert>}
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <Card>
+        <CardHeader><div className="flex items-center justify-between gap-3"><div><CardTitle>正在执行的 Shell</CardTitle><CardDescription>{data?.shells.filter((shell) => shell.running).length ?? 0} 个进程运行中</CardDescription></div><Badge variant={data?.shells.some((shell) => shell.running) ? "warning" : "secondary"}>{data?.shells.some((shell) => shell.running) ? "运行中" : "空闲"}</Badge></div></CardHeader>
+        <CardContent className="p-0">
+          {!data?.shells.length ? <Empty icon={Terminal} title="没有后台 Shell" detail="使用 shell_spawn 创建后台任务后，它们会出现在这里。" /> : <div className="divide-y">{data.shells.map((shell) => <div key={shell.shellId} className="space-y-3 p-5"><div className="flex flex-wrap items-start gap-3"><Badge variant={shell.running ? "warning" : shell.terminationReason === "user_terminated_process" ? "destructive" : "success"}>{shell.running ? "运行中" : shell.terminationReason === "user_terminated_process" ? "用户终止" : "已结束"}</Badge><code className="min-w-0 flex-1 break-all text-sm font-semibold">{shell.command}</code>{shell.running && <Button size="sm" variant="destructive" disabled={busy.has(`shell:${shell.shellId}`)} onClick={() => { void kill(shell.shellId); }}><Square className="h-3.5 w-3.5" />终止进程</Button>}</div><div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2"><div>Shell ID <code>{shell.shellId}</code></div><div>PID <code>{shell.pid ?? "—"}</code></div><div className="sm:col-span-2">输出文件 <code className="break-all">{shell.outputPath}</code></div><div>开始 {formatAuditTime(new Date(shell.startedAt * 1000).toISOString())}</div><div>{shell.running ? "状态：运行中" : `退出码：${shell.exitCode ?? "—"}`}</div></div>{!shell.running && <div className="rounded-lg bg-muted/50 p-3 text-xs">结束理由：<code>{shell.terminationReason}</code>{shell.terminationDetail && <span> · {shell.terminationDetail}</span>}</div>}</div>)}</div>}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><div className="flex items-center justify-between gap-3"><div><CardTitle>Shell wait</CardTitle><CardDescription>当前 MCP wait 调用</CardDescription></div><Badge variant={data?.waits.length ? "warning" : "secondary"}>{data?.waits.length ?? 0} 个等待</Badge></div></CardHeader>
+        <CardContent className="p-0">
+          {!data?.waits.length ? <Empty icon={RefreshCw} title="没有正在等待的 wait" detail="shell_wait 调用会在这里显示，超时后自动消失。" /> : <div className="divide-y">{data.waits.map((wait) => <div key={wait.waitId} className="space-y-3 p-5"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="text-sm font-medium">Shell <code>{wait.shellId}</code></p><p className="mt-1 text-xs text-muted-foreground">Wait <code>{wait.waitId}</code></p></div><Button size="sm" variant="outline" disabled={busy.has(`wait:${wait.waitId}`)} onClick={() => { setCancelTarget(wait); }}>终止等待</Button></div><div className="text-xs text-muted-foreground">超时：{wait.timeout == null ? "无限" : `${wait.timeout} ms`} · 开始：{formatAuditTime(new Date(wait.startedAt * 1000).toISOString())}</div></div>)}</div>}
+        </CardContent>
+      </Card>
+    </div>
+    {cancelTarget && <div className="fixed inset-0 z-50" role="presentation"><button type="button" aria-label="关闭" className="absolute inset-0 bg-black/30" onClick={() => { setCancelTarget(null); }} /><div role="dialog" aria-modal="true" aria-label="终止 Shell wait" className="absolute left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-5 shadow-2xl"><h2 className="text-lg font-semibold">终止等待</h2><p className="mt-1 text-sm text-muted-foreground">仅终止这个 wait，不会终止 Shell 进程。可选填写理由，理由会返回给 MCP 调用方。</p><div className="mt-4 space-y-2"><Label htmlFor="wait-reason">理由（可选）</Label><Input id="wait-reason" autoFocus value={waitReason} onChange={(e) => { setWaitReason(e.target.value); }} placeholder="例如：管理员取消等待" /></div><div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => { setCancelTarget(null); }}>取消</Button><Button variant="destructive" disabled={busy.has(`wait:${cancelTarget.waitId}`)} onClick={() => { void cancelWait(); }}>终止等待</Button></div></div></div>}
+  </Page>;
+}
+
 function AuditJson({ title, value }: { title: string; value: unknown }) { let text: string; try { text = JSON.stringify(value, null, 2); } catch { text = String(value); } return <div>{title && <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>}<pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs leading-5">{text}</pre></div>; }
 function formatDuration(ms: number): string { const value = Math.max(0, ms); if (value < 1000) return `${value.toFixed(1)} ms`; if (value < 60_000) return `${(value / 1000).toFixed(2)} s`; if (value < 3_600_000) return `${Math.floor(value / 60_000)} min ${(value % 60_000 / 1000).toFixed(1)} s`; if (value < 86_400_000) return `${Math.floor(value / 3_600_000)} h ${(value % 3_600_000 / 60_000).toFixed(1)} min`; return `${(value / 86_400_000).toFixed(1)} d`; } function auditDuration(record: AuditRecord): string { if (!record.active) return formatDuration(record.durationMs); const elapsed = Math.max(0, Date.now() - new Date(record.timestamp).getTime()); return formatDuration(Math.max(record.durationMs, elapsed)); }
 function formatAuditTime(timestamp: string): string { const date = new Date(timestamp); return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }); }

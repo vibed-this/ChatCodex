@@ -29,9 +29,11 @@ class ShellUnitTests(unittest.IsolatedAsyncioTestCase):
         timed = await service.shell_wait(spawned["shellId"], timeout=20)
         assert timed["timedOut"] is True
         assert timed["running"] is True
+        assert timed["terminationReason"] == "wait_timeout"
         finished = await service.shell_wait(spawned["shellId"], timeout=5000)
         assert finished["running"] is False
         assert finished["exitCode"] == 0
+        assert finished["terminationReason"] == "process_exit"
 
     async def test_background_kill_terminates_shell(self) -> None:
         service = ExecutionService(Settings())
@@ -39,6 +41,47 @@ class ShellUnitTests(unittest.IsolatedAsyncioTestCase):
         spawned = await service.shell_spawn(command)
         killed = await service.shell_kill(spawned["shellId"])
         assert killed["running"] is False
+        assert killed["terminationReason"] == "user_terminated_process"
+
+    async def test_background_wait_reports_process_termination_reason(self) -> None:
+        service = ExecutionService(Settings())
+        command = "Start-Sleep -Seconds 2" if sys.platform == "win32" else "sleep 2"
+        spawned = await service.shell_spawn(command)
+        wait_task = asyncio.create_task(service.shell_wait(spawned["shellId"]))
+        for _ in range(20):
+            if (await service.shell_list())["waits"]:
+                break
+            await asyncio.sleep(0.01)
+        await service.shell_kill(spawned["shellId"])
+        result = await wait_task
+        assert result["terminationReason"] == "user_terminated_process"
+        assert result["exitCode"] is not None
+
+    async def test_background_wait_reports_process_exit_reason(self) -> None:
+        service = ExecutionService(Settings())
+        spawned = await service.shell_spawn("exit 7")
+        result = await service.shell_wait(spawned["shellId"], timeout=5000)
+        assert result["terminationReason"] == "process_exit"
+        assert result["exitCode"] == 7
+
+    async def test_background_wait_can_be_cancelled_without_killing_shell(self) -> None:
+        service = ExecutionService(Settings())
+        command = "Start-Sleep -Seconds 2" if sys.platform == "win32" else "sleep 2"
+        spawned = await service.shell_spawn(command)
+        wait_task = asyncio.create_task(service.shell_wait(spawned["shellId"]))
+        for _ in range(20):
+            if (await service.shell_list())["waits"]:
+                break
+            await asyncio.sleep(0.01)
+        waits = (await service.shell_list())["waits"]
+        assert len(waits) == 1
+        result = await service.shell_cancel_wait(waits[0]["waitId"], "管理员取消")
+        assert result["terminationReason"] == "user_terminated_wait"
+        assert result["terminationDetail"] == "管理员取消"
+        assert result["running"] is True
+        waited = await wait_task
+        assert waited["terminationReason"] == "user_terminated_wait"
+        await service.shell_kill(spawned["shellId"])
     async def test_command_and_workdir(self) -> None:
         service = ExecutionService(Settings())
         command = f'{sys.executable} -c "print(123)"'

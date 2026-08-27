@@ -831,6 +831,24 @@ async def clear_mcp_audit(p: Annotated[Principal, Depends(principal)]) -> Any:
     return {"ok": True}
 
 
+@app.get("/api/shells")
+async def get_shells(p: Annotated[Principal, Depends(principal)]) -> Any:
+    return await _require(orch).shell_list()
+
+
+@app.post("/api/shells/{shell_id}/kill")
+async def kill_shell(shell_id: str, p: Annotated[Principal, Depends(principal)]) -> Any:
+    return await _require(orch).shell_kill(shell_id)
+
+
+@app.post("/api/shell-waits/{wait_id}/cancel")
+async def cancel_shell_wait(
+    wait_id: str, request: Request, p: Annotated[Principal, Depends(principal)]
+) -> Any:
+    body = await _read_json_body_limited(request, 16 * 1024)
+    return await _require(orch).shell_cancel_wait(wait_id, str(body.get("reason", "")))
+
+
 @app.get("/api/mcp-tools")
 async def get_mcp_tools(p: Annotated[Principal, Depends(principal)]) -> Any:
     tools = await _require(mcp).list_tools()
