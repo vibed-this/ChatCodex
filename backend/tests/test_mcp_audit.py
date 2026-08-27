@@ -83,6 +83,7 @@ class McpAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(active), 1)
         self.assertEqual(active[0]["tool"], "slow")
         self.assertTrue(active[0]["active"])
+        self.assertFalse(active[0]["success"])
         self.assertEqual(log.list(), [])
         release.set()
         await task
