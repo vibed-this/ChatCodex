@@ -19,13 +19,41 @@ class ShellUnitTests(unittest.IsolatedAsyncioTestCase):
         assert result["exitCode"] == 0
         assert "123" in result["stdout"]
 
+    async def test_large_output_is_tail_truncated_and_saved(self) -> None:
+        service = ExecutionService(Settings())
+        command = f'{sys.executable} -c "import sys;sys.stdout.write(chr(10).join(map(str,range(2105))))"'
+        result = await service.bash(command, timeout=5000)
+
+        assert result["exitCode"] == 0
+        assert result["truncated"] is True
+        output_path = result["outputPath"]
+        assert isinstance(output_path, str) and output_path
+        saved = open(output_path, encoding="utf-8").read()
+        assert saved.splitlines()[0] == "0"
+        assert saved.splitlines()[-1] == "2104"
+        assert result["stdout"].splitlines()[0] == "105"
+        assert result["stdout"].splitlines()[-1] == "2104"
+
+    async def test_byte_limited_output_is_saved(self) -> None:
+        service = ExecutionService(Settings())
+        command = f'{sys.executable} -c "import sys;sys.stdout.write(chr(120)*60000)"'
+        result = await service.bash(command, timeout=5000)
+
+        assert result["exitCode"] == 0
+        assert result["truncated"] is True
+        output_path = result["outputPath"]
+        assert isinstance(output_path, str) and output_path
+        saved = open(output_path, encoding="utf-8").read()
+        assert len(saved.encode("utf-8")) > 50 * 1024
+        assert result["stdout"].startswith("x")
+
     async def test_timeout_terminates_process_tree(self) -> None:
         service = ExecutionService(Settings())
         command = "Start-Sleep -Seconds 10" if sys.platform == "win32" else "sleep 10"
         started = time.monotonic()
         result = await service.bash(command, timeout=100)
         assert result["exitCode"] is None
-        assert result["truncated"]
+        assert result["truncated"] is False
         assert time.monotonic() - started < 5
 
     async def test_long_running_command_does_not_block_other_tools(self) -> None:

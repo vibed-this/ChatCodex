@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from ._common import *  # noqa: F403  # noqa: F403
 from ._common import (
     DEFAULT_SHELL_TIMEOUT_MS,
-    MAX_BYTES_FALLBACK,
-    MAX_LINE_FALLBACK,
+    MAX_BYTES,
+    MAX_LINES,
     ExecutionError,
     Optional,
     _resolve_absolute,
@@ -23,8 +24,110 @@ from ._common import (
 
 
 class ShellService:
+    RETENTION_SECONDS = 7 * 24 * 60 * 60
+
     def __init__(self, settings: Any) -> None:
         self.settings = settings
+
+    @classmethod
+    def _output_dir(cls) -> str:
+        path = os.path.join(tempfile.gettempdir(), "chatcodex-tool-output")
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    @classmethod
+    def _cleanup_output_files(cls) -> None:
+        directory = cls._output_dir()
+        cutoff = time.time() - cls.RETENTION_SECONDS
+        try:
+            for entry in os.scandir(directory):
+                if not entry.name.startswith("tool_") or not entry.is_file():
+                    continue
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        os.remove(entry.path)
+                except OSError:
+                    continue
+        except OSError:
+            return
+
+    @classmethod
+    def _save_output(cls, text: str) -> str:
+        directory = cls._output_dir()
+        fd, path = tempfile.mkstemp(prefix="tool_", suffix=".log", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            raise
+        return path
+
+    @staticmethod
+    def _truncate_output(text: str, max_lines: int, max_bytes: int) -> tuple[str, bool, int, str]:
+        lines = text.split("\n")
+        total_bytes = len(text.encode("utf-8"))
+        if len(lines) <= max_lines and total_bytes <= max_bytes:
+            return text, False, 0, "lines"
+        preview = _tail_output(text, max_lines, max_bytes)
+        preview_bytes = len(preview.encode("utf-8"))
+        if total_bytes > max_bytes:
+            return preview, True, total_bytes - preview_bytes, "bytes"
+        return preview, True, len(lines) - len(preview.split("\n")), "lines"
+
+    def _format_result(
+        self,
+        command: str,
+        raw: str,
+        exit_code: int | None,
+        meta: list[str],
+        output_path: str | None = None,
+        tail: str | None = None,
+    ) -> dict[str, Any]:
+        self._cleanup_output_files()
+        max_lines = int(getattr(self.settings, "bash_max_lines", MAX_LINES))
+        max_bytes = int(getattr(self.settings, "bash_max_bytes", MAX_BYTES))
+        if output_path is not None:
+            preview = _tail_output(tail or "", max_lines, max_bytes)
+            truncated = True
+        else:
+            preview, truncated, _, _ = self._truncate_output(raw, max_lines, max_bytes)
+            if truncated:
+                output_path = self._save_output(raw)
+        output = preview or "(no output)"
+        if truncated and output_path:
+            output = (
+                "...output truncated...\n\n"
+                f"Full output saved to: {output_path}\n\n"
+                "Use Read with offset/limit to view specific sections or Grep to search the full content.\n\n"
+                + output
+            )
+        if meta:
+            output += "\n\n<shell_metadata>\n" + "\n".join(meta) + "\n</shell_metadata>"
+        return {
+            "title": command,
+            "output": output,
+            "metadata": {
+                "output": output[-30000:],
+                "exit": exit_code,
+                "truncated": truncated,
+                **({"outputPath": output_path} if output_path else {}),
+            },
+            "exitCode": exit_code,
+            "stdout": preview,
+            "stderr": "",
+            "truncated": truncated,
+            "outputPath": output_path,
+        }
 
     async def execute(
         self, command: str, timeout: Optional[int] = None, workdir: Optional[str] = None
@@ -91,38 +194,7 @@ class ShellService:
                 except (TimeoutError, OSError):
                     out = ""
                 meta = f"shell tool terminated command after exceeding timeout {eff_timeout} ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds."
-                # tail/truncate
-                truncated_output = _tail_output(
-                    out or "", MAX_LINE_FALLBACK, MAX_BYTES_FALLBACK
-                )
-                truncated = True
-                # file fallback
-                fpath = ""
-                if len((out or "").encode("utf-8")) > MAX_BYTES_FALLBACK:
-                    fd, fpath = tempfile.mkstemp(prefix="bash-", suffix=".log")
-                    os.write(fd, (out or "").encode("utf-8"))
-                    os.close(fd)
-                output = truncated_output
-                if truncated and fpath:
-                    output = (
-                        f"...output truncated...\n\nFull output saved to: {fpath}\n\n"
-                        + output
-                    )
-                output += f"\n\n<shell_metadata>\n{meta}\n</shell_metadata>"
-                return {
-                    "title": command,
-                    "output": output,
-                    "metadata": {
-                        "output": output[-30000:],
-                        "exit": None,
-                        "truncated": True,
-                        "outputPath": fpath,
-                    },
-                    "exitCode": None,
-                    "stdout": out or "",
-                    "stderr": "",
-                    "truncated": True,
-                }
+                return self._format_result(command, out or "", None, [meta])
             except asyncio.CancelledError:
                 await _terminate_process_tree(proc)
                 try:
@@ -131,44 +203,7 @@ class ShellService:
                     pass
                 raise
             code = proc.returncode
-            raw = out or ""
-            # truncate handling similar to opencode
-            limits_max_bytes = MAX_BYTES_FALLBACK
-            limits_max_lines = MAX_LINE_FALLBACK * 2
-            truncated = False
-            fpath = ""
-            if (
-                len(raw.encode("utf-8")) > limits_max_bytes
-                or len(raw.splitlines()) > limits_max_lines
-            ):
-                truncated = True
-                # write full to file
-                fd, fpath = tempfile.mkstemp(prefix="bash-", suffix=".log")
-                os.write(fd, raw.encode("utf-8"))
-                os.close(fd)
-                # tail
-                raw = _tail_output(raw, limits_max_lines, limits_max_bytes)
-            if not raw:
-                raw = "(no output)"
-            if truncated and fpath:
-                raw = (
-                    f"...output truncated...\n\nFull output saved to: {fpath}\n\n" + raw
-                )
-            return {
-                "title": command,
-                "output": raw,
-                "metadata": {
-                    "output": raw[-30000:],
-                    "exit": code,
-                    "truncated": truncated,
-                    **({"outputPath": fpath} if truncated and fpath else {}),
-                },
-                "exitCode": code,
-                "stdout": out or "",
-                "stderr": "",
-                "truncated": truncated,
-                "outputPath": fpath if truncated else None,
-            }
+            return self._format_result(command, out or "", code, [])
         except ExecutionError:
             raise
         except Exception as e:

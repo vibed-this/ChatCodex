@@ -48,6 +48,9 @@ class Settings:
 
     native_dir: str = _native_dir()
 
+    bash_max_lines: int = int(_env("CHATCODEX_BASH_MAX_LINES", "2000"))
+    bash_max_bytes: int = int(_env("CHATCODEX_BASH_MAX_BYTES", str(50 * 1024)))
+
     # Web 管理面板/API 与 MCP 使用独立凭据。旧 CHATCODEX_AUTH_* 仅作迁移兜底。
     web_access_token: str = _env(
         "CHATCODEX_WEB_ACCESS_TOKEN", _env("CHATCODEX_AUTH_TOKEN", "")
