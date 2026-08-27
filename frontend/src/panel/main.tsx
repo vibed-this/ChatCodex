@@ -4,7 +4,7 @@ import {
   Bot, Check, ChevronRight, Cloud,
   Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
   LockKeyhole, LogOut, Menu, Moon, Network, Play, RefreshCw, Save,
-  Settings2, Square, Sun, Zap,
+  Settings2, Square, Sun, Zap, Search, Trash2, X,
 } from "lucide-react";
 import "../styles.css";
 import { api } from "./api";
@@ -18,11 +18,12 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "tunnel" | "settings";
+type Tab = "overview" | "tunnel" | "settings" | "mcp-audit";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "tunnel", label: "公网入口", icon: Network },
   { id: "settings", label: "设置", icon: Settings2 },
+  { id: "mcp-audit", label: "MCP 调用审计", icon: Search },
 ];
 
 function App() {
@@ -91,6 +92,7 @@ function App() {
           {tab === "overview" && <Overview data={overview} go={selectTab} />}
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
+          {tab === "mcp-audit" && <McpAudit />}
         </main>
       </div>
     </div>
@@ -255,6 +257,47 @@ function Settings() {
   </Page>;
 }
 
+function McpAudit() {
+  const [data, setData] = useState<{ records: Array<{ timestamp: string; tool: string; arguments: Record<string, unknown>; success: boolean; durationMs: number; result: unknown; error: string | null }>; count: number; maxRecords: number } | null>(null);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<{ timestamp: string; tool: string; arguments: Record<string, unknown>; success: boolean; durationMs: number; result: unknown; error: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = () => api.mcpAudit("").then((value) => { setData(value); }).catch((e) => { setError(String(e)); });
+  useEffect(() => { load(); const timer = setInterval(load, 1500); return () => { clearInterval(timer); }; }, []);
+  const records = (data?.records ?? []).filter((record) => {
+    const needle = query.trim().toLowerCase();
+    return !needle || record.tool.toLowerCase().includes(needle) || JSON.stringify(record.arguments).toLowerCase().includes(needle) || JSON.stringify(record.result).toLowerCase().includes(needle) || (record.error ?? "").toLowerCase().includes(needle);
+  });
+  async function clear() { setBusy(true); setError(""); try { await api.clearMcpAudit(""); setSelected(null); await load(); } catch (e) { setError(String(e)); } finally { setBusy(false); } }
+  return <Page title="MCP 调用审计" description="查看当前 Gateway 进程内最近的 MCP tool 调用；不持久化，最多保留 1000 条。" actions={<Button variant="outline" onClick={clear} disabled={busy || !data?.count}><Trash2 className="h-4 w-4" />清空</Button>}>
+    {error && <Alert>{error}</Alert>}
+    <Card>
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div><CardTitle>调用记录</CardTitle><CardDescription>{data?.count ?? 0} / {data?.maxRecords ?? 1000} 条，按最新调用排序</CardDescription></div><div className="relative sm:ml-auto sm:w-80"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input aria-label="筛选 MCP 调用" value={query} onChange={(e) => { setQuery(e.target.value); }} placeholder="按 tool、参数或结果筛选" className="pl-9" /></div></div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {records.length === 0 ? <Empty icon={Search} title={query ? "没有匹配记录" : "暂无 MCP tool 调用"} detail={query ? "调整筛选条件后重试。" : "调用 MCP tool 后，记录会立即出现在这里。"} /> : <div className="divide-y">{records.map((record, index) => <button type="button" key={`${record.timestamp}-${record.tool}-${index}`} onClick={() => { setSelected(record); }} className={cn("block w-full px-5 py-4 text-left transition-colors hover:bg-accent/60", selected === record && "bg-accent")}><div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><div className="flex items-center gap-2"><Badge variant={record.success ? "success" : "destructive"}>{record.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(record.tool, record.arguments)}</code></div><p className="mt-1 truncate text-xs text-muted-foreground">{formatAuditTime(record.timestamp)}</p></div><span className="text-xs text-muted-foreground">{record.durationMs.toFixed(1)} ms</span></div></button>)}</div>}
+      </CardContent>
+    </Card>
+    {selected && <div className="fixed inset-0 z-50" role="presentation"><button type="button" aria-label="关闭详情" className="absolute inset-0 bg-black/30" onClick={() => { setSelected(null); }} /><aside role="dialog" aria-modal="true" aria-label="MCP 调用详情" className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l bg-background shadow-2xl"><div className="flex items-start gap-4 border-b p-5"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant={selected.success ? "success" : "destructive"}>{selected.success ? "成功" : "失败"}</Badge><code className="truncate text-sm font-semibold">{auditTitle(selected.tool, selected.arguments)}</code></div><p className="mt-1 text-xs text-muted-foreground">{formatAuditTime(selected.timestamp)} · {selected.durationMs.toFixed(1)} ms</p></div><Button variant="ghost" size="icon" aria-label="关闭详情" onClick={() => { setSelected(null); }}><X className="h-4 w-4" /></Button></div><div className="flex-1 space-y-5 overflow-y-auto p-5"><AuditJson title="Arguments" value={selected.arguments} /><AuditResult value={selected.result} />{selected.error && <AuditJson title="Error" value={selected.error} />}</div></aside></div>}
+  </Page>;
+}
+function AuditJson({ title, value }: { title: string; value: unknown }) { let text: string; try { text = JSON.stringify(value, null, 2); } catch { text = String(value); } return <div>{title && <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>}<pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs leading-5">{text}</pre></div>; }
+function AuditResult({ value }: { value: unknown }) {
+  const [mode, setMode] = useState<"friendly" | "raw">("friendly");
+  return <div><div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Result</p><div className="inline-flex rounded-md border p-0.5"><Button type="button" variant={mode === "friendly" ? "secondary" : "ghost"} size="sm" className="h-7 px-2 text-xs" onClick={() => { setMode("friendly"); }}>普通</Button><Button type="button" variant={mode === "raw" ? "secondary" : "ghost"} size="sm" className="h-7 px-2 text-xs" onClick={() => { setMode("raw"); }}>Raw</Button></div></div>{mode === "raw" ? <AuditJson title="" value={value} /> : <FriendlyAuditResult value={value} />}</div>;
+}
+function FriendlyAuditResult({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">无结果</div>;
+  if (typeof value === "string") return <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/40 p-4 text-sm leading-6">{value}</div>;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return <div className="break-words rounded-lg border bg-muted/40 p-4 text-sm font-mono">{String(value)}</div>;
+  if (Array.isArray(value)) return <div className="space-y-2">{value.length === 0 ? <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">空列表</div> : value.map((item, index) => <div key={index} className="rounded-lg border bg-muted/40 p-3"><p className="mb-1 text-xs font-medium text-muted-foreground">#{index + 1}</p><div className="min-w-0">{typeof item === "object" && item !== null ? <FriendlyAuditResult value={item} /> : <span className="break-words text-sm">{String(item)}</span>}</div></div>)}</div>;
+  if (typeof value === "object") return <div className="divide-y rounded-lg border">{Object.entries(value as Record<string, unknown>).length === 0 ? <div className="p-4 text-sm text-muted-foreground">空对象</div> : Object.entries(value as Record<string, unknown>).map(([key, item]) => <div key={key} className="grid gap-1 p-3 sm:grid-cols-[minmax(120px,0.35fr)_minmax(0,1fr)]"><div className="break-words text-xs font-medium text-muted-foreground">{key}</div><div className="min-w-0">{typeof item === "object" && item !== null ? <FriendlyAuditResult value={item} /> : <span className="break-words text-sm">{String(item)}</span>}</div></div>)}</div>;
+  return <div className="rounded-lg border bg-muted/40 p-4 text-sm">{String(value)}</div>;
+}
+function formatAuditTime(timestamp: string): string { const date = new Date(timestamp); return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }); }
+function auditTitle(tool: string, arguments_: Record<string, unknown>): string { const priority = ["name", "id", "path", "url", "query", "command", "text", "selector", "filePath", "pageId"]; const key = priority.find((candidate) => Object.prototype.hasOwnProperty.call(arguments_, candidate)) ?? Object.keys(arguments_)[0]; if (!key) return tool; let value: string; try { value = typeof arguments_[key] === "string" ? arguments_[key] : JSON.stringify(arguments_[key]); } catch { value = String(arguments_[key]); } const preview = `${key}=${value}`; return `${tool} · ${preview.length > 80 ? `${preview.slice(0, 77)}…` : preview}`; }
 function Brand({ inverse = false }: { inverse?: boolean }) { return <div className={cn("flex h-16 items-center gap-3 px-5", inverse && "px-0")}><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Bot className="h-5 w-5" /></div><div><p className={cn("text-sm font-semibold tracking-tight", inverse && "text-white")}>ChatCodex</p><p className={cn("text-[11px] text-muted-foreground", inverse && "text-zinc-400")}>Local agent gateway</p></div></div>; }
 function Splash() { return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground"><Bot className="h-5 w-5" /></div><RefreshCw className="mx-auto mt-5 h-4 w-4 animate-spin text-muted-foreground" /></div></div>; }
 function Page({ title, description, actions, children }: { title: string; description: string; actions?: React.ReactNode; children: React.ReactNode }) { return <section><div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>{actions}</div>{children}</section>; }

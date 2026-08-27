@@ -29,6 +29,14 @@ class ContractFastMCP(FastMCP):
         super().__init__(*args, **kwargs)
         self.chrome_devtools = chrome_devtools
 
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        return await record_mcp_tool_call(
+            AUDIT_LOG,
+            name,
+            arguments,
+            super().call_tool,
+        )
+
     async def list_tools(self) -> Any:
         if self.chrome_devtools is not None and self.chrome_devtools.enabled:
             try:
@@ -54,6 +62,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.execution import ExecutionError, ExecutionService
 
+from .audit import AUDIT_LOG, record_mcp_tool_call
 from .schemas import TOOL_DEFINITIONS
 
 if TYPE_CHECKING:
@@ -175,6 +184,7 @@ def build_mcp(
         token_verifier=verifier,
         streamable_http_path="/",
     )
+
     def as_tool_error(exc: Exception) -> ToolError:
         if isinstance(exc, ExecutionError):
             hint = f". {exc.hint}" if exc.hint else ""

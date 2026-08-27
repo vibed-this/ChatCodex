@@ -20,6 +20,8 @@ export const api = {
   // 设置
   settings: (token: string) => req(token, "/api/settings"),
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
+  mcpAudit: (token: string) => req(token, "/api/mcp-audit"),
+  clearMcpAudit: (token: string) => req(token, "/api/mcp-audit", { method: "DELETE" }),
   setSettings: (token: string, kv: Record<string, any>) =>
     req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),
   installTunnelClient: (token: string, release = "") =>

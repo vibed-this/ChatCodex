@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
+from .mcp.audit import AUDIT_LOG
 from .native import NativeRuntimeError
 from .oauth import (
     Principal,
@@ -817,6 +818,17 @@ async def get_settings(p: Annotated[Principal, Depends(principal)]) -> Any:
 @app.get("/api/oauth/metadata-audit")
 async def oauth_metadata_audit(p: Annotated[Principal, Depends(principal)]) -> Any:
     return _oauth_metadata_audit()
+
+
+@app.get("/api/mcp-audit")
+async def get_mcp_audit(p: Annotated[Principal, Depends(principal)]) -> Any:
+    return {"records": AUDIT_LOG.list(), "count": AUDIT_LOG.count(), "maxRecords": 1000}
+
+
+@app.delete("/api/mcp-audit")
+async def clear_mcp_audit(p: Annotated[Principal, Depends(principal)]) -> Any:
+    AUDIT_LOG.clear()
+    return {"ok": True}
 
 
 @app.get("/api/mcp-tools")
