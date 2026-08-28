@@ -30,6 +30,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
+# Ship the already-built single-file frontend inside the Python package so an
+# installed wheel has no dependency on the source checkout's frontend/dist.
+[tool.hatch.build.targets.wheel.force-include]
+"../frontend/dist" = "app/frontend"
+
 [tool.ruff]
 target-version = "py311"
 line-length = 88

@@ -36,7 +36,8 @@ def _normalize_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("external MCP server id must not contain __")
     transport = str(config.get("transport") or "streamable_http").lower()
     if transport not in SUPPORTED_TRANSPORTS:
-        raise ValueError(f"transport must be one of: {", ".join(sorted(SUPPORTED_TRANSPORTS))}")
+        supported = ", ".join(sorted(SUPPORTED_TRANSPORTS))
+        raise ValueError(f"transport must be one of: {supported}")
     out = dict(config)
     out["id"] = server_id
     out["name"] = str(config.get("name") or server_id)
@@ -223,4 +224,3 @@ class ExternalMcpManager:
             }
             for config in self._configs.values()
         ]
-

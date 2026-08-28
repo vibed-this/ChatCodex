@@ -18,6 +18,18 @@ def _native_dir() -> str:
     return _env("CHATCODEX_NATIVE_DIR", os.path.join(workspace, "native"))
 
 
+def _frontend_dist() -> str:
+    """Resolve bundled frontend first, while preserving source-tree development."""
+    configured = _env("CHATCODEX_FRONTEND_DIST")
+    if configured:
+        return configured
+    bundled = os.path.join(os.path.dirname(__file__), "frontend")
+    if os.path.isdir(bundled):
+        return bundled
+    workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(workspace, "frontend", "dist")
+
+
 def _legacy_database_path() -> str:
     return os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "chatcodex.db")
@@ -81,10 +93,7 @@ class Settings:
 
 
     # 前端构建产物目录(widget 资源);开发期也可内联
-    frontend_dist: str = _env(
-        "CHATCODEX_FRONTEND_DIST",
-        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"),
-    )
+    frontend_dist: str = _frontend_dist()
 
     # 全局公网入口只允许 direct / cloudflared。CHATCODEX_TUNNEL 仅作旧配置迁移。
     public_route_kind: str = _env(
