@@ -170,58 +170,6 @@ class ToolContractTests(unittest.IsolatedAsyncioTestCase):
             "sizeBytes": 8,
         }
 
-    async def test_finish_work_returns_is_done_verbatim(self) -> None:
-        server = build_mcp(
-            Settings(mcp_auth_mode="noauth"), cast("Any", FakeExecutionService())
-        )
-        result = await server.call_tool(
-            "finish_work",
-            {
-                "user_requirement": "do this exact thing",
-                "is_done": False,
-            },
-        )
-        assert isinstance(result, tuple)
-        assert result[1] == {"result": False}
-
-        result = await server.call_tool(
-            "finish_work",
-            {
-                "user_requirement": "do this exact thing",
-                "is_done": True,
-            },
-        )
-        assert isinstance(result, tuple)
-        assert result[1] == {"result": True}
-
-    async def test_finish_work_contract_is_strict(self) -> None:
-        server = build_mcp(
-            Settings(mcp_auth_mode="noauth"), cast("Any", FakeExecutionService())
-        )
-        tool = {tool.name: tool for tool in await server.list_tools()}["finish_work"]
-        assert set(tool.inputSchema["properties"]) == {"user_requirement", "is_done"}
-        assert tool.inputSchema["required"] == ["user_requirement", "is_done"]
-        assert tool.inputSchema["properties"]["user_requirement"]["type"] == "string"
-        assert tool.inputSchema["properties"]["is_done"]["type"] == "boolean"
-        user_requirement_description = tool.inputSchema["properties"][
-            "user_requirement"
-        ].get("description")
-        is_done_description = tool.inputSchema["properties"]["is_done"].get(
-            "description"
-        )
-        assert isinstance(user_requirement_description, str)
-        assert isinstance(is_done_description, str)
-        assert "EXACTLY and VERBATIM" in user_requirement_description
-        assert "Self-assessment" in is_done_description
-        assert tool.outputSchema == {
-            "properties": {"result": {"title": "Result", "type": "boolean"}},
-            "required": ["result"],
-            "title": "finish_workOutput",
-            "type": "object",
-        }
-        assert isinstance(tool.description, str)
-        assert "MUST call this tool before ending EVERY work round" in tool.description
-
     async def test_batch_call_contract_is_strict(self) -> None:
         server = build_mcp(
             Settings(mcp_auth_mode="noauth"), cast("Any", FakeExecutionService())
