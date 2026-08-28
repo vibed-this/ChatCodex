@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 
 from .config import Settings, load_settings
 from .execution import ExecutionService
-from .mcp.chrome_devtools import ChromeDevToolsMCP
 from .mcp.server import build_mcp
 from .native import NativeRuntimeManager
 from .oauth import Authenticator, WebAuthenticator
@@ -36,7 +35,6 @@ class Runtime:
     web_auth: WebAuthenticator
     tunnels: TunnelManager
     execution: ExecutionService
-    chrome_devtools: ChromeDevToolsMCP
     mcp: FastMCP
     generated_web_token: bool
     generated_mcp_token: bool
@@ -119,15 +117,6 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
             "tunnel_auto_restart": bool(
                 override("tunnel_auto_restart", settings.tunnel_auto_restart)
             ),
-            "chrome_devtools_mcp_enabled": bool(
-                override(
-                    "chrome_devtools_mcp_enabled",
-                    settings.chrome_devtools_mcp_enabled,
-                )
-            ),
-            "chrome_devtools_mcp_command": override(
-                "chrome_devtools_mcp_command", settings.chrome_devtools_mcp_command
-            ),
         }
     )
 
@@ -136,11 +125,7 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
     web_auth = WebAuthenticator(settings.web_access_token)
     tunnels = TunnelManager(settings, native=native)
     execution = ExecutionService(settings)
-    chrome_devtools = ChromeDevToolsMCP(
-        settings.chrome_devtools_mcp_command,
-        enabled=settings.chrome_devtools_mcp_enabled,
-    )
-    mcp = build_mcp(settings, execution, auth, chrome_devtools)
+    mcp = build_mcp(settings, execution, auth)
     return Runtime(
         settings,
         db,
@@ -150,7 +135,6 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         web_auth,
         tunnels,
         execution,
-        chrome_devtools,
         mcp,
         generated_web_token,
         generated_mcp_token,

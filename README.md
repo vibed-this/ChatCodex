@@ -120,26 +120,7 @@ Linux/macOS：`$XDG_STATE_HOME/chatcodex/`），可用 `CHATCODEX_DATABASE_URL` 
 | `CHATCODEX_MCP_AUTH_MODE` | `token` | `token` / `oauth` / `both` / `noauth` |
 | `CHATCODEX_PUBLIC_URL` | `http://127.0.0.1:8000` | 公网地址（OAuth 需要） |
 | `CHATCODEX_DATABASE_URL` | 用户私有目录 | 数据库位置（`sqlite:///` 或 `postgresql://`） |
-| `CHATCODEX_CHROME_DEVTOOLS_MCP_ENABLED` | `1` | 启用 Chrome DevTools MCP 下游桥接；关闭可设为 `0` |
-| `CHATCODEX_CHROME_DEVTOOLS_MCP_COMMAND` | `npx --yes chrome-devtools-mcp@latest` | Chrome DevTools MCP 启动命令 |
 
 完整列表与默认值见控制台「设置」页。
-
-## Chrome DevTools MCP
-
-ChatCodex 可以把官方 `chrome-devtools-mcp` 的工具直接桥接到自己的 MCP 服务中。启用后，
-下游工具会以 `chrome_` 前缀暴露，例如 `chrome_navigate_page`、`chrome_evaluate_script`、
-`chrome_take_screenshot` 和 `chrome_list_pages`。
-
-Chrome DevTools MCP 默认启用，但采用真正的按需启动：ChatCodex 自身启动以及 MCP 客户端的
-`tools/list` 请求都不会拉起下游进程。Chrome 工具的名称和参数契约由本地 manifest 提供；只有客户端
-实际调用 `chrome_*` 工具时，ChatCodex 才启动 `chrome-devtools-mcp` 并建立持久会话。
-如不需要 Chrome DevTools MCP，可在控制台「设置」中关闭 `chrome_devtools_mcp_enabled`，或者设置
-`CHATCODEX_CHROME_DEVTOOLS_MCP_ENABLED=0`。默认命令使用 `npx --yes`，首次使用时会由 npm 获取
-`chrome-devtools-mcp`；也可以通过 `chrome_devtools_mcp_command` 指定自定义命令，
-例如连接已有的调试 Chrome：`npx --yes chrome-devtools-mcp@latest --browserUrl http://127.0.0.1:9222`。
-
-Chrome DevTools MCP 在 ChatCodex MCP 生命周期内保持一个持久 stdio 会话，工具 schema 从下游
-服务器动态发现并原样转发；ChatCodex 关闭时会同时关闭该下游会话。
 
 [于 Linux.do 社区发布](https://linux.do)

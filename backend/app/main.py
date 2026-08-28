@@ -37,7 +37,6 @@ auth = None
 web_auth = None
 tunnels = None
 orch = None
-chrome_devtools = None
 mcp = None
 _GENERATED_WEB_TOKEN = False
 _GENERATED_MCP_TOKEN = False
@@ -135,7 +134,7 @@ def _activate_tunnel_public_url(public_url: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    global runtime, settings, db, settings_store, native, auth, web_auth, tunnels, orch, chrome_devtools, mcp
+    global runtime, settings, db, settings_store, native, auth, web_auth, tunnels, orch, mcp
     global _GENERATED_WEB_TOKEN, _GENERATED_MCP_TOKEN
     runtime = create_runtime()
     settings = runtime.settings
@@ -146,7 +145,6 @@ async def lifespan(app: FastAPI) -> Any:
     web_auth = runtime.web_auth
     tunnels = runtime.tunnels
     orch = runtime.execution
-    chrome_devtools = runtime.chrome_devtools
     mcp = runtime.mcp
     _require(tunnels).on_public_url = _activate_tunnel_public_url
     _GENERATED_WEB_TOKEN = runtime.generated_web_token
@@ -161,7 +159,6 @@ async def lifespan(app: FastAPI) -> Any:
             yield
     finally:
         await _require(tunnels).stop()
-        await _require(chrome_devtools).close()
         await runtime.close()
 
 
@@ -799,11 +796,6 @@ async def overview(p: Annotated[Principal, Depends(principal)]) -> Any:
         "chatgptTunnel": _require(tunnels).status(_CHATGPT_MCP_INSTANCE),
         "executionCapabilities": _require(orch).capabilities(),
         "auth": {"web": "token", "mcp": settings.mcp_auth_mode},
-        "chromeDevToolsMcp": {
-            "enabled": settings.chrome_devtools_mcp_enabled,
-            "connected": _require(chrome_devtools).connected,
-            "error": _require(chrome_devtools).last_error,
-        },
     }
 
 
@@ -857,11 +849,6 @@ async def get_mcp_tools(p: Annotated[Principal, Depends(principal)]) -> Any:
         "policy": "full-access",
         "default": "allow",
         "mcpForwarding": True,
-        "chromeDevToolsMcp": {
-            "enabled": settings.chrome_devtools_mcp_enabled,
-            "connected": _require(chrome_devtools).connected,
-            "error": _require(chrome_devtools).last_error,
-        },
     }
 
 
@@ -890,7 +877,6 @@ async def set_settings(
         "oauth_callback_protection",
         "tunnel_auto_restart",
         "chatgpt_tunnel_enabled",
-        "chrome_devtools_mcp_enabled",
     }
     invalid_bools = sorted(
         key for key in bool_settings if key in body and not isinstance(body[key], bool)
@@ -935,18 +921,6 @@ async def set_settings(
             tunnel_kind=(updated.get("public_route_kind") or ""),
         )
         _require(tunnels).settings = runtime_settings
-    if "chrome_devtools_mcp_enabled" in body or "chrome_devtools_mcp_command" in body:
-        await _require(chrome_devtools).close()
-        _require(chrome_devtools).enabled = bool(
-            updated.get(
-                "chrome_devtools_mcp_enabled", settings.chrome_devtools_mcp_enabled
-            )
-        )
-        _require(chrome_devtools).command = str(
-            updated.get(
-                "chrome_devtools_mcp_command", settings.chrome_devtools_mcp_command
-            )
-        ).strip()
     restart_required = sorted(
         set(body)
         & {
@@ -993,8 +967,6 @@ def _effective_settings() -> dict[str, Any]:
         "oauth_password": settings.oauth_password,
         "oauth_callback_protection": settings.oauth_callback_protection,
         "public_url": settings.public_url,
-        "chrome_devtools_mcp_enabled": settings.chrome_devtools_mcp_enabled,
-        "chrome_devtools_mcp_command": settings.chrome_devtools_mcp_command,
     }
     for key, fallback in fallbacks.items():
         override = _require(settings_store).get_override(key)

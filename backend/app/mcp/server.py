@@ -23,11 +23,9 @@ class ContractFastMCP(FastMCP):
     def __init__(
         self,
         *args: Any,
-        chrome_devtools: ChromeDevToolsMCP | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.chrome_devtools = chrome_devtools
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         return await record_mcp_tool_call(
@@ -38,14 +36,6 @@ class ContractFastMCP(FastMCP):
         )
 
     async def list_tools(self) -> Any:
-        if self.chrome_devtools is not None and self.chrome_devtools.enabled:
-            try:
-                await self.chrome_devtools.list_and_register(
-                    self, set(TOOL_DEFINITIONS)
-                )
-                self.chrome_devtools.last_error = None
-            except Exception as exc:
-                self.chrome_devtools.last_error = str(exc)
         tools = await super().list_tools()
         for tool in tools:
             definition = TOOL_DEFINITIONS.get(tool.name)
@@ -55,6 +45,7 @@ class ContractFastMCP(FastMCP):
                 if definition.output_schema is not None:
                     tool.outputSchema = definition.output_schema
         return tools
+
 
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -69,7 +60,6 @@ if TYPE_CHECKING:
     from app.config import Settings
     from app.oauth import Authenticator
 
-    from .chrome_devtools import ChromeDevToolsMCP
 
 
 def _transport_security(settings: Settings) -> TransportSecuritySettings:
@@ -161,7 +151,6 @@ def build_mcp(
     settings: Settings,
     orch: ExecutionService,
     auth: Authenticator | None = None,
-    chrome_devtools: ChromeDevToolsMCP | None = None,
 ) -> FastMCP:
     auth_settings = None
     verifier = None
@@ -176,7 +165,6 @@ def build_mcp(
         verifier = _Verifier(auth)
     mcp = ContractFastMCP(
         "chatcodex",
-        chrome_devtools=chrome_devtools,
         stateless_http=True,
         json_response=True,
         transport_security=_transport_security(settings),
