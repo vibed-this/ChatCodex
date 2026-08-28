@@ -1023,17 +1023,7 @@ async def set_settings(
 
 
 def _masked_settings(values: dict[str, Any]) -> dict[str, Any]:
-    values = dict(values)
-    for key in (
-        "web_access_token",
-        "mcp_access_token",
-        "oauth_password",
-        "cloudflared_token",
-        "chatgpt_api_key",
-    ):
-        values[key] = "********" if values.get(key) else ""
-    return values
-
+    return dict(values)
 
 def _effective_settings() -> dict[str, Any]:
     values = _require(settings_store).all()
