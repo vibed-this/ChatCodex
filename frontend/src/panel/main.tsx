@@ -23,6 +23,7 @@ const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "tunnel", label: "公网入口", icon: Network },
   { id: "settings", label: "设置", icon: Settings2 },
+  { id: "external-mcp", label: "External MCP", icon: Plug },
   { id: "mcp-audit", label: "MCP 调用审计", icon: Search },
   { id: "shells", label: "Shell 任务", icon: Terminal },
 ];
