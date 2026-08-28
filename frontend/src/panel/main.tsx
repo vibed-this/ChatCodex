@@ -293,11 +293,13 @@ function ExternalMcp() {
 }
 
 function Settings() {
-  const [cfg, setCfg] = useState<Record<string, any>>({}); const [audit, setAudit] = useState<any>(null); const [saved, setSaved] = useState(false); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  const [cfg, setCfg] = useState<Record<string, any>>({}); const [audit, setAudit] = useState<any>(null); const [saved, setSaved] = useState(false); const [saving, setSaving] = useState(false); const [copiedLaunch, setCopiedLaunch] = useState(false); const [error, setError] = useState("");
   useEffect(() => { api.settings("").then((d) => { setCfg(d.settings ?? {}); }); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); }, []);
   const set = (key: string, value: any) => { setCfg((now) => ({ ...now, [key]: value })); setSaved(false); };
   async function save() { setSaving(true); setError(""); const payload = { ...cfg }; for (const key of ["web_access_token", "mcp_access_token", "oauth_password"]) if (!payload[key] || payload[key] === "********") delete payload[key]; try { const result = await api.setSettings("", payload); setCfg(result.settings ?? cfg); setSaved(true); api.oauthMetadataAudit("").then(setAudit).catch(() => {}); } catch (e) { setError(String(e)); } finally { setSaving(false); } }
-  return <Page title="Gateway 设置" description="认证、连接方式与公网入口配置。" actions={<Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button>}>
+  const launchCommand = buildLaunchCommand(cfg);
+  async function copyLaunchCommand() { await navigator.clipboard.writeText(launchCommand); setCopiedLaunch(true); window.setTimeout(() => setCopiedLaunch(false), 1200); }
+  return <Page title="Gateway 设置" description="认证、连接方式与公网入口配置。" actions={<div className="flex gap-2"><Button variant="outline" onClick={copyLaunchCommand} disabled={!launchCommand}><Terminal className="h-4 w-4" />{copiedLaunch ? "Copied" : "Copy launch command"}</Button><Button onClick={save} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "已保存" : "保存更改"}</Button></div>}>
     {error && <Alert>{error}</Alert>}
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-6">
@@ -401,6 +403,16 @@ function Brand({ inverse = false }: { inverse?: boolean }) { return <div classNa
 function Splash() { return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground"><Bot className="h-5 w-5" /></div><RefreshCw className="mx-auto mt-5 h-4 w-4 animate-spin text-muted-foreground" /></div></div>; }
 function Page({ title, description, actions, children }: { title: string; description: string; actions?: React.ReactNode; children: React.ReactNode }) { return <section><div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>{actions}</div>{children}</section>; }
 function Field({ label, hint, className, children }: { label: string; hint?: string; className?: string; children: React.ReactNode }) { return <div className={cn("space-y-2", className)}><Label>{label}</Label>{children}{hint && <p className="text-xs leading-5 text-muted-foreground">{hint}</p>}</div>; }
+function shellQuote(value: string): string { return "'" + String(value).replace(/'/g, "''") + "'"; }
+function buildLaunchCommand(cfg: Record<string, any>): string {
+  const args: string[] = ["python", "-m", "app.main"];
+  if (cfg.web_access_token && cfg.web_access_token !== "********") args.push("--web-token", shellQuote(String(cfg.web_access_token)));
+  const mode = String(cfg.mcp_auth_mode || "token");
+  args.push("--mcp-auth-mode", mode);
+  if (["token", "both"].includes(mode) && cfg.mcp_access_token && cfg.mcp_access_token !== "********") args.push("--mcp-token", shellQuote(String(cfg.mcp_access_token)));
+  return args.join(" ");
+}
+
 function SecretInput({ value, setValue, placeholder }: { value: string; setValue(v: string): void; placeholder: string }) { return <Input type="text" value={value} onChange={(e) => { setValue(e.target.value); }} placeholder={placeholder} className="font-mono text-xs" />; }
 function SecretSetting({ value, onChange, placeholder }: { value: string; onChange(v: string): void; placeholder: string }) { return <SecretInput value={value ?? ""} setValue={onChange} placeholder={placeholder} />; }
 function SecurityBlock({ number, title, description, children }: { number: string; title: string; description: string; children: React.ReactNode }) { return <div className="grid gap-4 md:grid-cols-[180px_1fr]"><div><span className="font-mono text-xs text-primary">{number}</span><p className="mt-1 text-sm font-semibold">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div><div>{children}</div></div>; }
