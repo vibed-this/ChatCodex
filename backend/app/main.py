@@ -20,7 +20,6 @@ from .mcp.audit import AUDIT_LOG
 from .native import NativeRuntimeError
 from .oauth import (
     Principal,
-    _canonical_scope,
     _canonical_scopes_list,
     is_chatgpt_connector_callback,
 )
@@ -30,6 +29,7 @@ _ALLOWED_SCOPES = {"tools", "codex"}
 
 runtime = None
 settings = Settings()
+_CLI_SETTINGS_OVERRIDE: Settings | None = None
 db = None
 settings_store = None
 native = None
@@ -152,7 +152,7 @@ def _activate_tunnel_public_url(public_url: str) -> None:
 async def lifespan(app: FastAPI) -> Any:
     global runtime, settings, db, settings_store, native, auth, web_auth, tunnels, orch, mcp
     global _GENERATED_WEB_TOKEN, _GENERATED_MCP_TOKEN
-    runtime = create_runtime()
+    runtime = create_runtime(_CLI_SETTINGS_OVERRIDE)
     settings = runtime.settings
     db = runtime.db
     settings_store = runtime.settings_store
@@ -1130,13 +1130,36 @@ async def chatgpt_tunnel_stop(p: Annotated[Principal, Depends(principal)]) -> An
 
 
 def main() -> None:
+    import argparse
+
     import uvicorn
+
+    parser = argparse.ArgumentParser(prog="chatcodex-gateway")
+    parser.add_argument(
+        "--oauth-token",
+        metavar="TOKEN",
+        help="Accept TOKEN as the Gateway's OAuth Bearer access token.",
+    )
+    args = parser.parse_args()
+
+    global _CLI_SETTINGS_OVERRIDE
+    if args.oauth_token:
+        launch_base = Settings()
+        _CLI_SETTINGS_OVERRIDE = replace(
+            launch_base,
+            oauth_access_token=args.oauth_token,
+            mcp_auth_mode=(
+                launch_base.mcp_auth_mode
+                if launch_base.mcp_auth_mode != "token"
+                else "both"
+            ),
+        )
 
     from .config import load_settings
 
     launch_settings = settings if runtime is not None else load_settings()
     uvicorn.run(
-        "app.main:app",
+        app,
         host=launch_settings.host,
         port=launch_settings.port,
         reload=False,

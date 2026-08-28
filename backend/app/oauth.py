@@ -170,7 +170,7 @@ class TokenSigner:
                 return None
             return Principal(
                 user_id=data.get("sub", "unknown"),
-                scopes=_canonical_scopes_list((data.get("scope", "").split())),
+                scopes=_canonical_scopes_list(data.get("scope", "").split()),
                 client_id=str(data.get("client_id") or ""),
                 audience=str(audience),
             )
@@ -436,6 +436,12 @@ class Authenticator:
             if self.mode == "token":
                 return None
         if self.mode in ("oauth", "both"):
+            if self.settings.oauth_access_token and hmac.compare_digest(
+                token, self.settings.oauth_access_token
+            ):
+                return Principal(
+                    user_id="oauth-token", scopes=["tools"], client_id="oauth-token"
+                )
             return self.signer.verify(token, self.accepts_resource)
         return None
 

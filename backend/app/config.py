@@ -75,6 +75,8 @@ class Settings:
         ),
     )
     mcp_access_token: str = _env("CHATCODEX_MCP_ACCESS_TOKEN", "")
+    # Optional externally supplied OAuth access token accepted as a Bearer token.
+    oauth_access_token: str = _env("CHATCODEX_OAUTH_ACCESS_TOKEN", "")
     oauth_token_secret: str = _env(
         "CHATCODEX_OAUTH_TOKEN_SECRET", "dev-secret-change-me"
     )

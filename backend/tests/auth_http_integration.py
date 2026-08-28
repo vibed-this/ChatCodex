@@ -44,7 +44,7 @@ def main() -> None:
             "CONTROL_PLANE_TUNNEL_ID": tunnel_id,
         }
         process = subprocess.Popen(
-            [sys.executable, "-m", "app.main"],
+            [sys.executable, "-m", "app.main", "--oauth-token", "oauth-cli-secret"],
             cwd=backend,
             env=env,
             stdout=subprocess.DEVNULL,
@@ -75,6 +75,7 @@ def main() -> None:
                 "oauth_authorize": 302,
                 "oauth_token_exchange": 200,
                 "mcp_oauth_token": 200,
+                "mcp_cli_oauth_token": 200,
                 "oauth_refresh_token": 200,
                 "mcp_refreshed_oauth_token": 200,
                 "mcp_rejects_refresh_token": 401,
@@ -312,6 +313,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
     checks["oauth_token_exchange"] = status
     tokens = json.loads(raw)
     checks["mcp_oauth_token"] = mcp_initialize(base, tokens["access_token"])
+    checks["mcp_cli_oauth_token"] = mcp_initialize(base, "oauth-cli-secret")
     checks["mcp_rejects_refresh_token"] = mcp_initialize(base, tokens["refresh_token"])
     status, _, raw = request(
         base,
