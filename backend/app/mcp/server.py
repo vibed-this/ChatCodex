@@ -23,11 +23,20 @@ class ContractFastMCP(FastMCP):
     def __init__(
         self,
         *args: Any,
+        external_mcp: ExternalMcpManager | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self.external_mcp = external_mcp
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        if self.external_mcp is not None and self.external_mcp.owns_tool(name):
+            return await record_mcp_tool_call(
+                AUDIT_LOG,
+                name,
+                arguments,
+                self.external_mcp.call_tool,
+            )
         return await record_mcp_tool_call(
             AUDIT_LOG,
             name,
@@ -37,6 +46,8 @@ class ContractFastMCP(FastMCP):
 
     async def list_tools(self) -> Any:
         tools = await super().list_tools()
+        if self.external_mcp is not None:
+            tools.extend(await self.external_mcp.list_tools())
         for tool in tools:
             definition = TOOL_DEFINITIONS.get(tool.name)
             if definition is not None:
@@ -54,6 +65,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.execution import ExecutionError, ExecutionService
 
 from .audit import AUDIT_LOG, record_mcp_tool_call
+from .external import ExternalMcpManager
 from .schemas import TOOL_DEFINITIONS
 
 if TYPE_CHECKING:
@@ -151,6 +163,7 @@ def build_mcp(
     settings: Settings,
     orch: ExecutionService,
     auth: Authenticator | None = None,
+    external_mcp: ExternalMcpManager | None = None,
 ) -> FastMCP:
     auth_settings = None
     verifier = None
@@ -171,6 +184,7 @@ def build_mcp(
         auth=auth_settings,
         token_verifier=verifier,
         streamable_http_path="/",
+        external_mcp=external_mcp,
     )
 
     def as_tool_error(exc: Exception) -> ToolError:

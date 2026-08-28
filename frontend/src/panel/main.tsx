@@ -4,7 +4,7 @@ import {
   Bot, ChevronDown, ChevronRight, Check, Cloud,
   Copy, Download, ExternalLink, Eye, EyeOff, Gauge, KeyRound,
   LockKeyhole, LogOut, Menu, Moon, Network, PanelLeftClose, PanelLeftOpen, Play, RefreshCw, Save,
-  Settings2, Square, Sun, Zap, Search, Trash2, X, Terminal,
+  Settings2, Square, Sun, Zap, Search, Trash2, X, Terminal, Plug, Plus,
 } from "lucide-react";
 import "../styles.css";
 import { api } from "./api";
@@ -18,7 +18,7 @@ import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
-type Tab = "overview" | "tunnel" | "settings" | "mcp-audit" | "shells";
+type Tab = "overview" | "tunnel" | "settings" | "external-mcp" | "mcp-audit" | "shells";
 const NAV: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "概览", icon: Gauge },
   { id: "tunnel", label: "公网入口", icon: Network },
@@ -88,6 +88,7 @@ function App() {
           {tab === "overview" && <Overview data={overview} go={selectTab} />}
           {tab === "tunnel" && <Tunnel />}
           {tab === "settings" && <Settings />}
+          {tab === "external-mcp" && <ExternalMcp />}
           {tab === "mcp-audit" && <McpAudit />}
           {tab === "shells" && <Shells />}
         </main>
@@ -234,6 +235,60 @@ function ChatGptMcpTunnel({ cfg, set }: { cfg: Record<string, any>; set(key: str
     catch (e) { setError(String(e)); } finally { setDownloading(false); }
   }
   return <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="h-4 w-4 text-primary" />ChatGPT Tunnel · MCP</CardTitle><CardDescription>仅把 `/mcp/` 提供给 ChatGPT，不作为全局公网入口。</CardDescription></CardHeader><CardContent className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Tunnel ID" hint="OpenAI 控制平面的 tunnel_… 标识。"><Input value={cfg.chatgpt_tunnel_id ?? ""} onChange={(e) => { set("chatgpt_tunnel_id", e.target.value); }} placeholder="tunnel_…" /></Field><Field label="Runtime API Key" hint="仅保留在当前进程；自动启动请用 CONTROL_PLANE_API_KEY。"><SecretInput value={apiKey} setValue={setApiKey} placeholder="sk-…" /></Field><Field label="tunnel-client 版本"><Input value={cfg.tunnel_client_release ?? "v0.0.11-dev"} onChange={(e) => { set("tunnel_client_release", e.target.value); }} className="font-mono text-xs" /></Field><div className="flex items-end"><Button variant="outline" onClick={download} disabled={downloading}>{downloading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 / 更新客户端</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>随 Gateway 自动启动</Label><p className="mt-1 text-xs text-muted-foreground">需要环境变量中的 Runtime API Key</p></div><Switch checked={cfg.chatgpt_tunnel_enabled ?? false} onCheckedChange={(v) => { set("chatgpt_tunnel_enabled", v); }} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label>异常自动重启</Label><p className="mt-1 text-xs text-muted-foreground">独立线程与有界退避</p></div><Switch checked={cfg.tunnel_auto_restart ?? true} onCheckedChange={(v) => { set("tunnel_auto_restart", v); }} /></div></div>{oauthMode ? (oauthBlocked ? <Alert tone="warning">OAuth 需要先把全局公网 URL 配成可公开访问的 HTTPS 地址。</Alert> : <Alert>OAuth 授权服务器地址 {issuer} 必须能被 ChatGPT 公开访问。</Alert>) : <Alert>Token 模式下 MCP Access Token 只用于本机私有连接，不提供给 ChatGPT。</Alert>}{error && <Alert>{error}</Alert>}<div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-3"><Badge variant={state?.ready ? "success" : state?.running ? "warning" : "secondary"}>{state?.ready ? "已就绪" : state?.running ? "启动中" : "已停止"}</Badge><span className="text-xs text-muted-foreground">PID {state?.pid || "—"} · {state?.detail || "未启动"}</span><div className="ml-auto flex gap-2"><Button size="sm" onClick={start} disabled={busy || oauthBlocked}>{busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}启动</Button><Button size="sm" variant="outline" onClick={stop} disabled={busy}><Square className="h-3.5 w-3.5" />停止</Button></div></div>{state?.kind === "chatgpt" && <div className="mt-3 grid grid-cols-3 gap-2"><MiniStatus label="进程" on={state.running} /><MiniStatus label="健康" on={state.healthy} /><MiniStatus label="就绪" on={state.ready} /></div>}{state?.logs?.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-medium">最近日志</summary><pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-muted-foreground">{state.logs.join("\n")}</pre></details>}</div></CardContent></Card>;
+}
+
+function ExternalMcp() {
+  type Server = { id: string; name: string; transport: string; enabled: boolean; url?: string; command?: string; args?: string[]; cwd?: string; env?: Record<string, string>; headers?: Record<string, string>; connected?: boolean; toolCount?: number; lastError?: string };
+  const blank = (): Server => ({ id: "", name: "", transport: "streamable_http", enabled: true, url: "", command: "", args: [], cwd: "", env: {}, headers: {} });
+  const [servers, setServers] = useState<Server[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const load = () => api.externalMcp("").then((data) => { setServers(data.servers ?? []); if ((data.servers ?? []).length) setSelected((value: number) => Math.min(value, data.servers.length - 1)); }).catch((e) => setError(String(e)));
+  useEffect(() => { load(); }, []);
+  const current = servers[selected];
+  function update(patch: Partial<Server>) { setServers((items) => items.map((item, index) => index === selected ? { ...item, ...patch } : item)); setMessage(""); }
+  function add() { setServers((items) => [...items, blank()]); setSelected(servers.length); setMessage(""); setError(""); }
+  function remove() { if (!current) return; setServers((items) => items.filter((_, index) => index !== selected)); setSelected(Math.max(0, Math.min(selected, servers.length - 2))); }
+  function parseJson(value: string, label: string): Record<string, string> { if (!value.trim()) return {}; const parsed = JSON.parse(value); if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(`${label} must be a JSON object`); return Object.fromEntries(Object.entries(parsed).map(([key, item]) => [key, String(item)])); }
+  async function save() {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const prepared = servers.map((server) => ({ ...server, id: server.id.trim(), name: server.name.trim() || server.id.trim() }));
+      if (prepared.some((server) => !server.id)) throw new Error("Every external MCP server needs an id.");
+      const result = await api.setExternalMcp("", prepared);
+      setServers(result.servers ?? prepared); setMessage("External MCP configuration saved.");
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  }
+  async function test() {
+    if (!current) return; setTesting(true); setError(""); setMessage("");
+    try {
+      const payload = { ...current, headers: parseJson(String((current as any).headersText ?? JSON.stringify(current.headers ?? {})), "headers"), env: parseJson(String((current as any).envText ?? JSON.stringify(current.env ?? {})), "env") };
+      const result = await api.testExternalMcp("", payload);
+      if (!result.ok) throw new Error(result.error || "Connection failed");
+      setMessage(`Connection successful. ${result.tools?.length ?? 0} tool(s) discovered.`);
+    } catch (e) { setError(String(e)); } finally { setTesting(false); }
+  }
+  if (!current) return <Page title="External MCP" description="Connect external MCP servers and federate their tools through ChatCodex." actions={<Button onClick={add}><Plus className="h-4 w-4" />Add server</Button>}><Empty icon={Plug} title="No external MCP servers" detail="Add an MCP server to make its tools available through ChatCodex." /></Page>;
+  const headersText = (current as any).headersText ?? JSON.stringify(current.headers ?? {}, null, 2);
+  const envText = (current as any).envText ?? JSON.stringify(current.env ?? {}, null, 2);
+  return <Page title="External MCP" description="Connect stdio, SSE, or Streamable HTTP MCP servers and expose their tools from the same ChatCodex endpoint." actions={<div className="flex gap-2"><Button variant="outline" onClick={add}><Plus className="h-4 w-4" />Add server</Button><Button onClick={save} disabled={busy}>{busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save</Button></div>}>
+    {error && <Alert>{error}</Alert>}{message && <div role="status" className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-primary">{message}</div>}
+    <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <Card><CardHeader><CardTitle>Servers</CardTitle><CardDescription>{servers.length} configured</CardDescription></CardHeader><CardContent className="p-2">{servers.map((server, index) => <button key={`${server.id}-${index}`} onClick={() => setSelected(index)} className={cn("w-full rounded-lg p-3 text-left transition", selected === index ? "bg-primary/10" : "hover:bg-accent")}><div className="flex items-center gap-2"><span className={cn("h-2 w-2 rounded-full", server.connected ? "bg-emerald-500" : server.lastError ? "bg-destructive" : "bg-muted-foreground/40")} /><span className="min-w-0 flex-1 truncate text-sm font-medium">{server.name || server.id || "Unnamed server"}</span><Badge variant="outline">{server.transport}</Badge></div><p className="mt-1 truncate pl-4 text-xs text-muted-foreground">{server.toolCount ?? 0} tools{server.lastError ? " · error" : ""}</p></button>)}</CardContent></Card>
+      <Card><CardHeader><div className="flex items-start justify-between gap-4"><div><CardTitle>{current.name || current.id || "New server"}</CardTitle><CardDescription>Server configuration stays local to the ChatCodex Gateway.</CardDescription></div><Button variant="ghost" size="icon" aria-label="Remove server" onClick={remove}><Trash2 className="h-4 w-4" /></Button></div></CardHeader><CardContent className="space-y-5">
+        <div className="grid gap-4 md:grid-cols-2"><Field label="ID"><Input value={current.id} onChange={(e) => update({ id: e.target.value })} placeholder="github" className="font-mono" /></Field><Field label="Display name"><Input value={current.name} onChange={(e) => update({ name: e.target.value })} placeholder="GitHub MCP" /></Field></div>
+        <Field label="Transport"><Select value={current.transport} onValueChange={(value) => update({ transport: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="streamable_http">Streamable HTTP</SelectItem><SelectItem value="sse">SSE</SelectItem><SelectItem value="stdio">stdio</SelectItem></SelectContent></Select></Field>
+        {current.transport === "stdio" ? <div className="grid gap-4 md:grid-cols-2"><Field label="Command"><Input value={current.command ?? ""} onChange={(e) => update({ command: e.target.value })} placeholder="npx" className="font-mono" /></Field><Field label="Arguments" hint='JSON array, e.g. ["-y", "@modelcontextprotocol/server-github"]'><Input value={JSON.stringify(current.args ?? [])} onChange={(e) => { try { update({ args: JSON.parse(e.target.value) }); } catch { update({ args: e.target.value.split(/\s+/).filter(Boolean) }); } }} className="font-mono text-xs" /></Field><Field label="Working directory"><Input value={current.cwd ?? ""} onChange={(e) => update({ cwd: e.target.value })} placeholder="Optional" /></Field></div> : <Field label="Server URL"><Input value={current.url ?? ""} onChange={(e) => update({ url: e.target.value })} placeholder="https://example.com/mcp" className="font-mono" /></Field>}
+        <div className="grid gap-4 md:grid-cols-2"><Field label="HTTP headers" hint="JSON object. Values may contain credentials; they are masked after save."><textarea value={headersText} onChange={(e) => update({ headers: (() => { try { return parseJson(e.target.value, "headers"); } catch { return current.headers ?? {}; } })(), ...( { headersText: e.target.value } as any) })} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" /></Field><Field label="stdio environment" hint="JSON object. Values may contain credentials; they are masked after save."><textarea value={envText} onChange={(e) => update({ env: (() => { try { return parseJson(e.target.value, "env"); } catch { return current.env ?? {}; } })(), ...( { envText: e.target.value } as any) })} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" /></Field></div>
+        <div className="flex items-center justify-between rounded-lg border p-3"><div><Label>Enabled</Label><p className="mt-1 text-xs text-muted-foreground">Enabled servers are connected on demand and their tools are exposed as <code>server__tool</code>.</p></div><Switch checked={current.enabled} onCheckedChange={(value) => update({ enabled: value })} /></div>
+        {current.lastError && <Alert>{current.lastError}</Alert>}
+        <div className="flex gap-2"><Button variant="outline" onClick={test} disabled={testing}>{testing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}Test connection</Button><Badge variant={current.connected ? "success" : "secondary"} className="self-center">{current.connected ? `${current.toolCount ?? 0} tools connected` : "Not connected"}</Badge></div>
+      </CardContent></Card>
+    </div>
+  </Page>;
 }
 
 function Settings() {

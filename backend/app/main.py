@@ -44,6 +44,22 @@ _GENERATED_MCP_TOKEN = False
 _T = TypeVar("_T")
 
 
+def _mask_external(config: dict[str, Any]) -> dict[str, Any]:
+    value = dict(config)
+    value["headers"] = {k: ("********" if v else "") for k, v in (value.get("headers") or {}).items()}
+    value["env"] = {k: ("********" if v else "") for k, v in (value.get("env") or {}).items()}
+    return value
+
+
+def _merge_external_secret_fields(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(incoming)
+    for field in ("headers", "env"):
+        old = current.get(field) or {}
+        new = incoming.get(field) or {}
+        merged[field] = {k: (old[k] if v == "********" else str(v)) for k, v in new.items()}
+    return merged
+
+
 def _require(value: _T | None) -> _T:
     if value is None:
         msg = "runtime service is not initialized"
@@ -839,6 +855,74 @@ async def cancel_shell_wait(
 ) -> Any:
     body = await _read_json_body_limited(request, 16 * 1024)
     return await _require(orch).shell_cancel_wait(wait_id, str(body.get("reason", "")))
+
+
+@app.get("/api/external-mcp")
+async def get_external_mcp(p: Annotated[Principal, Depends(principal)]) -> Any:
+    manager = _require(runtime).external_mcp
+    status = {item["id"]: item for item in manager.status()}
+    servers = []
+    for config in manager.configs():
+        item = _mask_external(config)
+        item.update(status.get(config["id"], {}))
+        servers.append(item)
+    return {"servers": servers, "transports": ["stdio", "sse", "streamable_http"]}
+
+
+@app.put("/api/external-mcp")
+async def set_external_mcp(request: Request, p: Annotated[Principal, Depends(principal)]) -> Any:
+    body = await _read_json_body_limited(request, 256 * 1024)
+    servers = body.get("servers")
+    if not isinstance(servers, list):
+        raise HTTPException(422, "servers must be a list")
+    current = {item["id"]: item for item in _require(runtime).external_mcp.configs()}
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in servers:
+        if not isinstance(item, dict):
+            raise HTTPException(422, "each external MCP server must be an object")
+        server_id = str(item.get("id") or item.get("name") or "").strip()
+        if not server_id:
+            raise HTTPException(422, "external MCP server id/name is required")
+        if server_id in seen:
+            raise HTTPException(422, f"duplicate external MCP server: {server_id}")
+        seen.add(server_id)
+        existing = current.get(server_id, {})
+        merged.append(_merge_external_secret_fields(existing, item))
+    try:
+        from .mcp.external import _normalize_config
+        normalized = [_normalize_config(item) for item in merged]
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    _require(settings_store).set("external_mcp_servers", normalized)
+    await _require(runtime).external_mcp.replace_configs(normalized)
+    manager = _require(runtime).external_mcp
+    status = {item["id"]: item for item in manager.status()}
+    servers = []
+    for config in manager.configs():
+        item = _mask_external(config)
+        item.update(status.get(config["id"], {}))
+        servers.append(item)
+    return {"servers": servers}
+
+
+@app.post("/api/external-mcp/test")
+async def test_external_mcp(request: Request, p: Annotated[Principal, Depends(principal)]) -> Any:
+    body = await _read_json_body_limited(request, 128 * 1024)
+    if not isinstance(body, dict):
+        raise HTTPException(422, "server must be an object")
+    try:
+        from .mcp.external import _normalize_config
+        config = _normalize_config(body)
+        from .mcp.external import ExternalMcpManager
+        manager = ExternalMcpManager([config])
+        try:
+            tools = await manager.list_tools()
+            return {"ok": True, "server": config["id"], "tools": [tool.model_dump(mode="json") for tool in tools]}
+        finally:
+            await manager.close()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 @app.get("/api/mcp-tools")

@@ -124,3 +124,13 @@ Linux/macOS：`$XDG_STATE_HOME/chatcodex/`），可用 `CHATCODEX_DATABASE_URL` 
 完整列表与默认值见控制台「设置」页。
 
 [于 Linux.do 社区发布](https://linux.do)
+
+## External MCP federation
+
+ChatCodex can connect to user-configured external MCP servers and expose their tools through the same `/mcp/` endpoint as native ChatCodex tools. Supported transports are **stdio**, **SSE**, and **Streamable HTTP**. Each external tool is namespaced as `server__tool` to avoid collisions while preserving the upstream input/output schema.
+
+External MCP servers are configured from the Web console under **External MCP**. The configuration is stored in the local Gateway database, connections are established on demand, and active sessions are closed with the Gateway. HTTP headers and stdio environment values are masked when returned to the console; unchanged masked values are preserved on save.
+
+For stdio servers, configure a command, argument array, optional working directory, and environment variables. For SSE or Streamable HTTP, configure the server URL and optional HTTP headers. The **Test connection** action performs a real MCP initialization and tool discovery without adding the temporary connection to the Gateway.
+
+The Gateway continues to expose native tools and federated external tools together. External connection failures are isolated: an unavailable external server does not prevent native ChatCodex tools from being listed.

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import Settings, load_settings
 from .execution import ExecutionService
+from .mcp.external import ExternalMcpManager
 from .mcp.server import build_mcp
 from .native import NativeRuntimeManager
 from .oauth import Authenticator, WebAuthenticator
@@ -36,10 +37,12 @@ class Runtime:
     tunnels: TunnelManager
     execution: ExecutionService
     mcp: FastMCP
+    external_mcp: ExternalMcpManager
     generated_web_token: bool
     generated_mcp_token: bool
 
     async def close(self) -> None:
+        await self.external_mcp.close()
         await self.execution.close()
         self.db.close()
 
@@ -125,7 +128,8 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
     web_auth = WebAuthenticator(settings.web_access_token)
     tunnels = TunnelManager(settings, native=native)
     execution = ExecutionService(settings)
-    mcp = build_mcp(settings, execution, auth)
+    external_mcp = ExternalMcpManager(settings_store.get("external_mcp_servers") or [])
+    mcp = build_mcp(settings, execution, auth, external_mcp)
     return Runtime(
         settings,
         db,
@@ -136,6 +140,7 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         tunnels,
         execution,
         mcp,
+        external_mcp,
         generated_web_token,
         generated_mcp_token,
     )

@@ -24,6 +24,7 @@ DEFAULTS: dict[str, Any] = {
     "oauth_password": "",
     "oauth_callback_protection": False,
     "public_url": "",
+    "external_mcp_servers": [],
 }
 
 

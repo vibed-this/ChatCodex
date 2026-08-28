@@ -19,6 +19,9 @@ export const api = {
   overview: (token: string) => req(token, "/api/overview"),
   // 设置
   settings: (token: string) => req(token, "/api/settings"),
+  externalMcp: (token: string) => req(token, "/api/external-mcp"),
+  setExternalMcp: (token: string, servers: any[]) => req(token, "/api/external-mcp", { method: "PUT", body: JSON.stringify({ servers }) }),
+  testExternalMcp: (token: string, server: any) => req(token, "/api/external-mcp/test", { method: "POST", body: JSON.stringify(server) }),
   oauthMetadataAudit: (token: string) => req(token, "/api/oauth/metadata-audit"),
   mcpAudit: (token: string) => req(token, "/api/mcp-audit"),
   shells: (token: string) => req(token, "/api/shells"),

@@ -79,6 +79,7 @@ class Settings:
     # Secure MCP Tunnel 是独立的 MCP 传输，不改变这个全局地址。
     public_url: str = _env("CHATCODEX_PUBLIC_URL", "http://127.0.0.1:8000")
 
+
     # 前端构建产物目录(widget 资源);开发期也可内联
     frontend_dist: str = _env(
         "CHATCODEX_FRONTEND_DIST",
