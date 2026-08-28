@@ -33,6 +33,21 @@ uv sync --locked
 uv run python -m app.main
 ```
 
+也可以在启动命令中直接指定认证配置；命令行参数优先于环境变量和数据库中的已保存配置：
+
+```bash
+uv run python -m app.main --web-token WEB_TOKEN --mcp-auth-mode both --mcp-token MCP_TOKEN --oauth-token OAUTH_TOKEN
+```
+
+可用参数：
+
+- `--web-token` / `--web-access-token`：设置 Web 控制台 Access Token。
+- `--mcp-auth-mode`：设置 MCP 认证方式，支持 `token`、`oauth`、`both`、`noauth`。
+- `--mcp-token` / `--mcp-access-token`：设置 MCP 静态 Bearer Token。
+- `--oauth-token`：设置 OAuth Bearer Token；未显式指定 `--mcp-auth-mode` 时，会自动确保 MCP 接受 OAuth Token。
+
+这些命令行凭据只覆盖当前 Gateway 进程，不会写回数据库配置。
+
 首次启动会自动生成两个密钥并打印在控制台：
 
 - **Web Access Token** — 用来登录下面的管理控制台。

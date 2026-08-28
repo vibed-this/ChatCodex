@@ -52,7 +52,11 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
     db = Database(settings)
     settings_store = SettingsStore(db)
 
+    cli_overrides = settings.extra.get("cli_overrides", {})
+
     def override(key: str, fallback: Any) -> Any:
+        if key in cli_overrides:
+            return cli_overrides[key]
         value = settings_store.get_override(key)
         return fallback if value is None or value == "" else value
 

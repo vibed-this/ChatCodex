@@ -1130,19 +1130,49 @@ def main() -> None:
         metavar="TOKEN",
         help="Accept TOKEN as the Gateway's OAuth Bearer access token.",
     )
+    parser.add_argument(
+        "--mcp-auth-mode",
+        choices=("token", "oauth", "both", "noauth"),
+        help="Set the MCP authentication mode for this Gateway process.",
+    )
+    parser.add_argument(
+        "--mcp-token",
+        "--mcp-access-token",
+        dest="mcp_token",
+        metavar="TOKEN",
+        help="Set the MCP static Bearer access token for this Gateway process.",
+    )
+    parser.add_argument(
+        "--web-token",
+        "--web-access-token",
+        dest="web_token",
+        metavar="TOKEN",
+        help="Set the Web console access token for this Gateway process.",
+    )
     args = parser.parse_args()
 
     global _CLI_SETTINGS_OVERRIDE
-    if args.oauth_token:
+    cli_overrides = {
+        key: value
+        for key, value in {
+            "mcp_auth_mode": args.mcp_auth_mode,
+            "mcp_access_token": args.mcp_token,
+            "web_access_token": args.web_token,
+            "oauth_access_token": args.oauth_token,
+        }.items()
+        if value is not None
+    }
+    if args.oauth_token and args.mcp_auth_mode is None:
+        launch_mcp_mode = Settings().mcp_auth_mode
+        cli_overrides["mcp_auth_mode"] = launch_mcp_mode if launch_mcp_mode != "token" else "both"
+    if cli_overrides:
         launch_base = Settings()
         _CLI_SETTINGS_OVERRIDE = replace(
             launch_base,
-            oauth_access_token=args.oauth_token,
-            mcp_auth_mode=(
-                launch_base.mcp_auth_mode
-                if launch_base.mcp_auth_mode != "token"
-                else "both"
-            ),
+            **{
+                **cli_overrides,
+                "extra": {**launch_base.extra, "cli_overrides": cli_overrides},
+            },
         )
 
     from .config import load_settings

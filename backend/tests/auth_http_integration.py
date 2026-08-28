@@ -35,16 +35,28 @@ def main() -> None:
             **os.environ,
             "CHATCODEX_PORT": str(port),
             "CHATCODEX_DATABASE_URL": f"sqlite:///{Path(directory, 'test.db').as_posix()}",
-            "CHATCODEX_WEB_ACCESS_TOKEN": "web-integration-secret",
-            "CHATCODEX_MCP_ACCESS_TOKEN": "mcp-integration-secret",
-            "CHATCODEX_MCP_AUTH_MODE": "both",
+            "CHATCODEX_WEB_ACCESS_TOKEN": "env-web-secret",
+            "CHATCODEX_MCP_ACCESS_TOKEN": "env-mcp-secret",
+            "CHATCODEX_MCP_AUTH_MODE": "token",
             "CHATCODEX_OAUTH_TOKEN_SECRET": "integration-oauth-signing-secret-32-bytes",
             "CHATCODEX_OAUTH_PASSWORD": "oauth-consent-secret",
             "CHATCODEX_PUBLIC_URL": base,
             "CONTROL_PLANE_TUNNEL_ID": tunnel_id,
         }
         process = subprocess.Popen(
-            [sys.executable, "-m", "app.main", "--oauth-token", "oauth-cli-secret"],
+            [
+                sys.executable,
+                "-m",
+                "app.main",
+                "--oauth-token",
+                "oauth-cli-secret",
+                "--mcp-auth-mode",
+                "both",
+                "--mcp-token",
+                "mcp-cli-secret",
+                "--web-token",
+                "web-cli-secret",
+            ],
             cwd=backend,
             env=env,
             stdout=subprocess.DEVNULL,
@@ -62,6 +74,10 @@ def main() -> None:
             else:
                 msg = "Gateway did not become ready"
                 raise RuntimeError(msg)
+            status, _, raw = request(base, "/healthz")
+            health = json.loads(raw) if status == 200 else {}
+            if health.get("auth", {}).get("mcp") != "both":
+                raise AssertionError({"cli_mcp_auth_mode": health.get("auth")})
             checks = run_checks(base, tunnel_id)
             expected = {
                 "web_wrong_login": 401,
@@ -179,7 +195,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         base,
         "/api/auth/session",
         method="POST",
-        body={"token": "web-integration-secret"},
+        body={"token": "web-cli-secret"},
         opener=opener,
     )[0]
     checks["web_cookie_api"] = request(base, "/api/settings", opener=opener)[0]
@@ -218,10 +234,10 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         opener=opener,
     )[0]
     checks["web_rejects_mcp_token"] = request(
-        base, "/api/settings", token="mcp-integration-secret"
+        base, "/api/settings", token="mcp-cli-secret"
     )[0]
-    checks["mcp_rejects_web_token"] = mcp_initialize(base, "web-integration-secret")
-    checks["mcp_static_token"] = mcp_initialize(base, "mcp-integration-secret")
+    checks["mcp_rejects_web_token"] = mcp_initialize(base, "web-cli-secret")
+    checks["mcp_static_token"] = mcp_initialize(base, "mcp-cli-secret")
 
     status, _, raw = request(
         base,
