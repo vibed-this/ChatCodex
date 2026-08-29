@@ -9,7 +9,6 @@ if (!mainTsx.includes('if (record.tool === "batch_call" && children.length > 0) 
 if (!mainTsx.includes('function formatDuration(ms: number): string')) throw new Error("duration formatter missing");
 if (!mainTsx.includes('function buildLaunchCommand(cfg: Record<string, any>): string')) throw new Error("launch command generator missing");
 if (!mainTsx.includes('Copy launch command')) throw new Error("launch command copy action missing");
-if (mainTsx.includes('StatusLine label="����·��"') || mainTsx.includes('StatusLine label="MCP Tunnel"')) throw new Error("sidebar tunnel status card must be removed");
 if (mainTsx.includes('tool ��ִ����...')) throw new Error("MCP audit detail must not contain mojibake text");
 if (!mainTsx.includes('<Loading text="tool 执行中..." />')) throw new Error("active MCP audit detail loading text missing");
 if (!mainTsx.includes('if (value < 1000) return `${value.toFixed(1)} ms`;')) throw new Error("duration formatter must use milliseconds for sub-second values");

@@ -16,11 +16,9 @@ from .config import Settings, load_settings
 from .execution import ExecutionService
 from .mcp.external import ExternalMcpManager
 from .mcp.server import build_mcp
-from .native import NativeRuntimeManager
 from .oauth import Authenticator, WebAuthenticator
 from .persistence.database import Database
 from .persistence.settings import SettingsStore
-from .tunnel import TunnelManager
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -31,10 +29,8 @@ class Runtime:
     settings: Settings
     db: Database
     settings_store: SettingsStore
-    native: NativeRuntimeManager
     auth: Authenticator
     web_auth: WebAuthenticator
-    tunnels: TunnelManager
     execution: ExecutionService
     mcp: FastMCP
     external_mcp: ExternalMcpManager
@@ -86,7 +82,6 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         oauth_token_secret = secrets.token_urlsafe(48)
         settings_store.set("oauth_token_secret", oauth_token_secret)
 
-    public_route_kind = override("public_route_kind", settings.public_route_kind)
     public_url = str(override("public_url", settings.public_url)).rstrip("/")
     settings = Settings(
         **{
@@ -102,35 +97,12 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
                     "oauth_callback_protection", settings.oauth_callback_protection
                 )
             ),
-            "public_url": public_url,
-            "public_route_kind": public_route_kind
-            if public_route_kind in {"direct", "cloudflared-try", "cloudflared-named"}
-            else "",
-            "tunnel_kind": public_route_kind
-            if public_route_kind in {"direct", "cloudflared-try", "cloudflared-named"}
-            else "",
-            "chatgpt_tunnel_enabled": bool(
-                override("chatgpt_tunnel_enabled", settings.chatgpt_tunnel_enabled)
-            ),
-            "chatgpt_tunnel_id": override(
-                "chatgpt_tunnel_id", settings.chatgpt_tunnel_id
-            ),
-            "tunnel_client_command": override(
-                "tunnel_client_command", settings.tunnel_client_command
-            ),
-            "tunnel_client_release": override(
-                "tunnel_client_release", settings.tunnel_client_release
-            ),
-            "tunnel_auto_restart": bool(
-                override("tunnel_auto_restart", settings.tunnel_auto_restart)
-            ),
+            "public_url": public_url
         }
     )
 
-    native = NativeRuntimeManager(settings.native_dir)
     auth = Authenticator(settings, db=db)
     web_auth = WebAuthenticator(settings.web_access_token)
-    tunnels = TunnelManager(settings, native=native)
     execution = ExecutionService(settings)
     external_mcp = ExternalMcpManager(settings_store.get("external_mcp_servers") or [])
     mcp = build_mcp(settings, execution, auth, external_mcp)
@@ -138,10 +110,8 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         settings,
         db,
         settings_store,
-        native,
         auth,
         web_auth,
-        tunnels,
         execution,
         mcp,
         external_mcp,

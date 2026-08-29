@@ -28,7 +28,6 @@ def free_port() -> int:
 def main() -> None:
     port = free_port()
     base = f"http://127.0.0.1:{port}"
-    tunnel_id = "tunnel_" + "a" * 32
     backend = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="chatcodex-auth-") as directory:
         env = {
@@ -41,7 +40,6 @@ def main() -> None:
             "CHATCODEX_OAUTH_TOKEN_SECRET": "integration-oauth-signing-secret-32-bytes",
             "CHATCODEX_OAUTH_PASSWORD": "oauth-consent-secret",
             "CHATCODEX_PUBLIC_URL": base,
-            "CONTROL_PLANE_TUNNEL_ID": tunnel_id,
         }
         process = subprocess.Popen(
             [
@@ -78,7 +76,7 @@ def main() -> None:
             health = json.loads(raw) if status == 200 else {}
             if health.get("auth", {}).get("mcp") != "both":
                 raise AssertionError({"cli_mcp_auth_mode": health.get("auth")})
-            checks = run_checks(base, tunnel_id)
+            checks = run_checks(base)
             expected = {
                 "web_wrong_login": 401,
                 "web_login": 200,
@@ -97,7 +95,6 @@ def main() -> None:
                 "mcp_rejects_refresh_token": 401,
                 "oauth_prmd": 200,
                 "oauth_as_metadata": 200,
-                "public_route_rejects_chatgpt": 422,
             }
             failed = {
                 key: (checks.get(key), value)
@@ -184,7 +181,7 @@ def mcp_initialize(base: str, token: str) -> int:
         return exc.code
 
 
-def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
+def run_checks(base: str) -> dict[str, int]:
     checks: dict[str, int] = {}
     checks["web_wrong_login"] = request(
         base, "/api/auth/session", method="POST", body={"token": "wrong"}
@@ -225,13 +222,6 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
             and metadata.get("token_endpoint_auth_methods_supported") == ["none"]
         )
         else 0
-    )
-    checks["public_route_rejects_chatgpt"] = request(
-        base,
-        "/api/public-route/start",
-        method="POST",
-        body={"kind": "chatgpt"},
-        opener=opener,
     )[0]
     checks["web_rejects_mcp_token"] = request(
         base, "/api/settings", token="mcp-cli-secret"
@@ -258,10 +248,6 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         .rstrip(b"=")
         .decode()
     )
-    rewritten_resource = (
-        "https://tunnel-service.gateway.unified-0.internal.api.openai.org"
-        f"/v1/mcp/{tunnel_id}"
-    )
     params = {
         "client_id": client_id,
         "redirect_uri": "http://localhost/callback",
@@ -269,7 +255,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
         "code_challenge_method": "S256",
         "scope": "tools",
         "state": "state-1",
-        "resource": rewritten_resource,
+        "resource": base + "/mcp",
     }
     status, headers, _ = request(
         base, "/oauth/authorize?" + urllib.parse.urlencode(params)
@@ -323,7 +309,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
             "client_id": client_id,
             "redirect_uri": "http://localhost/callback",
             "code_verifier": verifier,
-            "resource": rewritten_resource,
+            "resource": base + "/mcp",
         },
     )
     checks["oauth_token_exchange"] = status
@@ -340,7 +326,7 @@ def run_checks(base: str, tunnel_id: str) -> dict[str, int]:
             "grant_type": "refresh_token",
             "refresh_token": tokens["refresh_token"],
             "client_id": client_id,
-            "resource": rewritten_resource,
+            "resource": base + "/mcp",
         },
     )
     checks["oauth_refresh_token"] = status

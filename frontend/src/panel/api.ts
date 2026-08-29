@@ -1,4 +1,4 @@
-/** 面板与后端 /api 的客户端。 */
+/** /api client. */
 const BASE = "";
 
 function headers(token = "") {
@@ -17,7 +17,6 @@ export const api = {
   authStatus: () => req("", "/api/auth/session"),
   logout: () => req("", "/api/auth/session", { method: "DELETE" }),
   overview: (token: string) => req(token, "/api/overview"),
-  // 设置
   settings: (token: string) => req(token, "/api/settings"),
   externalMcp: (token: string) => req(token, "/api/external-mcp"),
   setExternalMcp: (token: string, servers: any[]) => req(token, "/api/external-mcp", { method: "PUT", body: JSON.stringify({ servers }) }),
@@ -28,20 +27,5 @@ export const api = {
   killShell: (token: string, shellId: string) => req(token, `/api/shells/${encodeURIComponent(shellId)}/kill`, { method: "POST" }),
   cancelShellWait: (token: string, waitId: string, reason = "") => req(token, `/api/shell-waits/${encodeURIComponent(waitId)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   clearMcpAudit: (token: string) => req(token, "/api/mcp-audit", { method: "DELETE" }),
-  setSettings: (token: string, kv: Record<string, any>) =>
-    req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),
-  installTunnelClient: (token: string, release = "") =>
-    req(token, "/api/native/tunnel-client/install", { method: "POST", body: JSON.stringify({ release }) }),
-  // 全局公网入口：仅 direct / cloudflared
-  publicRouteStatus: (token: string) => req(token, "/api/public-route/status"),
-  publicRouteStart: (token: string, body: any) =>
-    req(token, "/api/public-route/start", { method: "POST", body: JSON.stringify(body) }),
-  publicRouteStop: (token: string) =>
-    req(token, "/api/public-route/stop", { method: "POST" }),
-  // ChatGPT Tunnel：独立 MCP 传输
-  chatgptTunnelStatus: (token: string) => req(token, "/api/chatgpt-tunnel/status"),
-  chatgptTunnelStart: (token: string, body: any) =>
-    req(token, "/api/chatgpt-tunnel/start", { method: "POST", body: JSON.stringify(body) }),
-  chatgptTunnelStop: (token: string) =>
-    req(token, "/api/chatgpt-tunnel/stop", { method: "POST" }),
+  setSettings: (token: string, kv: Record<string, any>) => req(token, "/api/settings", { method: "POST", body: JSON.stringify(kv) }),
 };

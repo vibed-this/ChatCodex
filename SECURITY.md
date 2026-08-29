@@ -12,7 +12,7 @@ Do not treat ChatCodex as a sandbox for untrusted agents or untrusted users. Run
 
 `file_security.py` protects ChatCodex-managed local state such as the database and secret files. It does not restrict execution paths.
 
-Web access tokens, MCP tokens, OAuth state, database files, tunnel credentials, and downloaded native runtimes must not be committed to source control.
+Web access tokens, MCP tokens, OAuth state, and database files must not be committed to source control.
 
 Web and MCP credentials are separate credentials and must be configured independently.
 

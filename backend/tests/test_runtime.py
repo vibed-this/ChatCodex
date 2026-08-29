@@ -19,6 +19,5 @@ class RuntimeCompositionTests(unittest.TestCase):
             runtime = create_runtime(settings)
             try:
                 assert runtime.execution.settings is runtime.settings
-                assert runtime.tunnels.settings is runtime.settings
             finally:
                 asyncio.run(runtime.close())

@@ -8,7 +8,6 @@ FastAPI lifespan
     +-- Runtime
         +-- Persistence (Database / SettingsStore)
         +-- Authenticator / WebAuthenticator
-        +-- NativeRuntimeManager / TunnelManager
         +-- ExecutionService
         |     +-- FilesystemService
         |     +-- SearchService

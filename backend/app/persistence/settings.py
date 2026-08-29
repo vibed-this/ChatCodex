@@ -11,13 +11,6 @@ if TYPE_CHECKING:
     from .database import Database
 
 DEFAULTS: dict[str, Any] = {
-    "public_route_kind": "",
-    "tunnel_kind": "",
-    "chatgpt_tunnel_enabled": False,
-    "chatgpt_tunnel_id": "",
-    "tunnel_client_command": "tunnel-client",
-    "tunnel_client_release": "v0.0.11-dev",
-    "tunnel_auto_restart": True,
     "web_access_token": "",
     "mcp_auth_mode": "token",
     "mcp_access_token": "",

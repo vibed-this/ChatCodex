@@ -80,7 +80,6 @@ npm run build
 
 | 方式 | 适合 | 怎么做 |
 |---|---|---|
-| **Cloudflare 隧道** | 大多数人 | 控制台 →「公网入口」→ 选 Cloudflare；临时域名调试、固定域名上线 |
 | **直接暴露** | 已有公网 IP / 域名 | 把 HTTPS、证书、DNS 指向本机，控制台 →「公网入口」→ 选直接暴露 |
 
 配好后，在 ChatGPT 里添加连接器：
@@ -91,7 +90,6 @@ npm run build
    - **OAuth**：浏览器会弹出授权页，输入你在控制台设置的 OAuth 密码。
    - **Token**：把 **MCP Access Token** 作为 Bearer 填入（不是 Web Access Token）。
 
-> ChatGPT Tunnel 是控制台「设置」页里另一条独立的接入通道，不走上面的公网入口，
 > 按需二选一或并用即可。
 
 ---
@@ -102,7 +100,6 @@ npm run build
 
 ### 改动何时生效
 
-- 公网入口、ChatGPT Tunnel：在对应页面即时启停。
 - 认证类设置（Token / OAuth）：保存后需**重启网关**。
 - 改了前端代码：重新 `npm run build` 并重启网关。
 

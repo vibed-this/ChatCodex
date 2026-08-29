@@ -13,11 +13,6 @@ def _env(name: str, default: str = "") -> str:
 
 
 
-def _native_dir() -> str:
-    workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    return _env("CHATCODEX_NATIVE_DIR", os.path.join(workspace, "native"))
-
-
 def _frontend_dist() -> str:
     """Resolve bundled frontend first, while preserving source-tree development."""
     configured = _env("CHATCODEX_FRONTEND_DIST")
@@ -58,8 +53,6 @@ class Settings:
         _env("CHATCODEX_DATABASE_URL") or "sqlite:///" + _default_database_path()
     )
 
-    native_dir: str = _native_dir()
-
     bash_max_lines: int = int(_env("CHATCODEX_BASH_MAX_LINES", "2000"))
     bash_max_bytes: int = int(_env("CHATCODEX_BASH_MAX_BYTES", str(50 * 1024)))
 
@@ -89,31 +82,12 @@ class Settings:
     oauth_callback_protection: bool = _env(
         "CHATCODEX_OAUTH_CALLBACK_PROTECTION", "0"
     ).lower() in {"1", "true", "yes", "on"}
-    # Gateway 的全局公网 HTTPS 根地址，用于内置 OAuth issuer / widget CSP。
-    # Secure MCP Tunnel 是独立的 MCP 传输，不改变这个全局地址。
     public_url: str = _env("CHATCODEX_PUBLIC_URL", "http://127.0.0.1:8000")
 
 
     # 前端构建产物目录(widget 资源);开发期也可内联
     frontend_dist: str = _frontend_dist()
 
-    # 全局公网入口只允许 direct / cloudflared。CHATCODEX_TUNNEL 仅作旧配置迁移。
-    public_route_kind: str = _env(
-        "CHATCODEX_PUBLIC_ROUTE", _env("CHATCODEX_TUNNEL", "")
-    )
-    tunnel_kind: str = public_route_kind  # 旧调用方兼容别名
-    cloudflared_token: str = _env("CLOUDFLARED_TOKEN", "")  # named tunnel JWT
-    # ChatGPT Tunnel 是独立 MCP 传输，不属于全局公网路由。
-    chatgpt_tunnel_enabled: bool = _env(
-        "CHATCODEX_CHATGPT_TUNNEL_ENABLED", "0"
-    ).lower() in {"1", "true", "yes", "on"}
-    chatgpt_tunnel_id: str = _env("CONTROL_PLANE_TUNNEL_ID", "")
-    chatgpt_api_key: str = _env("CONTROL_PLANE_API_KEY", "")
-    tunnel_client_command: str = _env("CHATCODEX_TUNNEL_CLIENT", "tunnel-client")
-    tunnel_client_release: str = _env("CHATCODEX_TUNNEL_CLIENT_RELEASE", "v0.0.11-dev")
-    tunnel_auto_restart: bool = _env(
-        "CHATCODEX_TUNNEL_AUTO_RESTART", "1"
-    ).lower() not in {"0", "false", "no", "off"}
 
     extra: dict[str, Any] = field(default_factory=dict)
 

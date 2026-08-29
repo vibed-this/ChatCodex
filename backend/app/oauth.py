@@ -19,7 +19,6 @@ import secrets
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 from .persistence.oauth import OAuthClientRepository
 
@@ -356,7 +355,6 @@ class Authenticator:
         self.mode = settings.mcp_auth_mode
         self.public_url = settings.public_url.rstrip("/")
         self.resource = f"{self.public_url}/mcp"
-        self.chatgpt_tunnel_id = settings.chatgpt_tunnel_id
         self.signer = TokenSigner(
             settings.oauth_token_secret,
             settings.oauth_token_ttl,
@@ -364,55 +362,6 @@ class Authenticator:
             self.resource,
         )
         self.store = OAuthStore(settings.oauth_callback_protection, db=db)
-
-    def set_public_url(self, public_url: str) -> None:
-        """Update the issuer/resource used by the current running instance.
-
-        This is used by ephemeral Cloudflare tunnels whose public HTTPS URL is
-        only known after the child process starts. Persisted configuration is
-        intentionally left unchanged because the URL changes on every start.
-        """
-        base = public_url.rstrip("/")
-        resource = f"{base}/mcp"
-        self.public_url = base
-        self.resource = resource
-        self.signer.set_issuer(base, resource)
-
-    def set_chatgpt_tunnel_id(self, tunnel_id: str) -> None:
-        """Update the exact Secure Tunnel audience accepted by this process."""
-        self.chatgpt_tunnel_id = tunnel_id.strip()
-
-    def accepts_resource(self, resource: str) -> bool:
-        """Accept the direct MCP resource or this instance's rewritten tunnel URL.
-
-        Secure MCP Tunnel rewrites PRMD ``resource`` to its public
-        ``/v1/mcp/{tunnel_id}`` endpoint. Keep that dynamic audience bounded to
-        the configured tunnel id and OpenAI-owned HTTPS hosts.
-        """
-        if resource == self.resource:
-            return True
-        tunnel_id = self.chatgpt_tunnel_id
-        if not tunnel_id or not re.fullmatch(r"tunnel_[0-9a-f]{32}", tunnel_id):
-            return False
-        try:
-            parsed = urlparse(resource)
-        except ValueError:
-            return False
-        hostname = (parsed.hostname or "").lower()
-        openai_host = any(
-            hostname == suffix or hostname.endswith("." + suffix)
-            for suffix in ("openai.org", "openai.com", "chatgpt.com")
-        )
-        return (
-            parsed.scheme == "https"
-            and openai_host
-            and parsed.path == f"/v1/mcp/{tunnel_id}"
-            and not parsed.params
-            and not parsed.query
-            and not parsed.fragment
-            and parsed.username is None
-            and parsed.password is None
-        )
 
     def authenticate(
         self, authorization_header: str | None, remote_addr: str = ""

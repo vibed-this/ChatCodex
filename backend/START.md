@@ -23,23 +23,18 @@ start.bat          # Windows
 |---|---|
 | **设置 → 访问与认证** | Web/MCP Token、OAuth 密码、回调保护、`PUBLIC_URL` |
 | **设置 → 会话默认** | 默认 Subagent 模型、Subagent 能力、历史模式、审批策略、沙箱 |
-| **公网入口** | Cloudflare / 直接暴露二选一，作为 Web、REST 与 OAuth issuer 的全局路由 |
-| **设置 → ChatGPT Tunnel · MCP** | 独立 Secure MCP Tunnel、线程隔离、watchdog 与客户端下载 |
 
 > 两个 Token 自动生成后会**分别持久化**,重启复用。面板只显示“已配置”,可轮换但不会回显秘密；首次值见启动输出。
 
 ## 接 ChatGPT
 
-1. 面板 → 公网入口 → 选择 Cloudflare 或直接暴露 → 复制公网 URL
 2. ChatGPT → Settings → Connectors → URL 填 `<公网URL>/mcp/`
 3. 鉴权:
    - **OAuth / Both**:ChatGPT 弹授权页,输入面板设置的 OAuth 密码；OAuth issuer 必须通过全局公网入口的稳定 HTTPS URL 可达。Secure Tunnel 只改写 MCP resource，不转发授权服务器
-   - **Token**:MCP Access Token 作为 `/mcp` 的静态 Bearer；用于 ChatGPT Tunnel 时只保护 tunnel-client 的本机私有跳
    - Web Access Token 只登录管理控制台,绝不能填到 MCP 客户端
 
 ## 改动生效
 
-- **公网入口 / ChatGPT Tunnel**:分别即时控制；自动启动配置在下次 Gateway 启动生效。
 - **认证**:保存后需重启 Gateway。
 - **前端**:改 frontend 后 `npm run build` 再重启。
 

@@ -17,7 +17,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
 from .mcp.audit import AUDIT_LOG
-from .native import NativeRuntimeError
 from .oauth import (
     Principal,
     _canonical_scopes_list,
@@ -32,10 +31,8 @@ settings = Settings()
 _CLI_SETTINGS_OVERRIDE: Settings | None = None
 db = None
 settings_store = None
-native = None
 auth = None
 web_auth = None
-tunnels = None
 orch = None
 mcp = None
 _GENERATED_WEB_TOKEN = False
@@ -66,10 +63,6 @@ def _require(value: _T | None) -> _T:
         raise RuntimeError(msg)
     return value
 
-
-_PUBLIC_ROUTE_KINDS = {"direct", "cloudflared-try", "cloudflared-named"}
-_PUBLIC_ROUTE_INSTANCE = "public-route"
-_CHATGPT_MCP_INSTANCE = "chatgpt-mcp"
 
 
 class _ReloadableAsgi:
@@ -120,53 +113,21 @@ def _valid_runtime_public_root(public_url: str, *, https_required: bool) -> bool
     )
 
 
-def _replace_runtime_public_url(public_url: str, *, https_required: bool) -> bool:
-    base = str(public_url or "").rstrip("/")
-    if not _valid_runtime_public_root(base, https_required=https_required):
-        return False
-    if auth is None or mcp is None:
-        return False
-    if _require(auth).public_url == base:
-        return True
-    _require(auth).set_public_url(base)
-    if _require(mcp).settings.auth is not None:
-        _require(mcp).settings.auth = (
-            _require(mcp)
-            .settings._require(auth)
-            .model_copy(
-                update={"issuer_url": base, "resource_server_url": f"{base}/mcp"}
-            )
-        )
-        _mcp_asgi.replace(_require(mcp).streamable_http_app())
-    _require(tunnels).settings = replace(_require(tunnels).settings, public_url=base)
-    return True
-
-
-def _activate_tunnel_public_url(public_url: str) -> None:
-    if not _replace_runtime_public_url(public_url, https_required=True):
-        msg = "tunnel public URL must be a public HTTPS root URL"
-        raise ValueError(msg)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    global runtime, settings, db, settings_store, native, auth, web_auth, tunnels, orch, mcp
+    global runtime, settings, db, settings_store, auth, web_auth, orch, mcp
     global _GENERATED_WEB_TOKEN, _GENERATED_MCP_TOKEN
     runtime = create_runtime(_CLI_SETTINGS_OVERRIDE)
     settings = runtime.settings
     db = runtime.db
     settings_store = runtime.settings_store
-    native = runtime.native
     auth = runtime.auth
     web_auth = runtime.web_auth
-    tunnels = runtime.tunnels
     orch = runtime.execution
     mcp = runtime.mcp
-    _require(tunnels).on_public_url = _activate_tunnel_public_url
     _GENERATED_WEB_TOKEN = runtime.generated_web_token
     _GENERATED_MCP_TOKEN = runtime.generated_mcp_token
     _mcp_asgi.replace(_require(mcp).streamable_http_app())
-    await _autostart_transports()
     try:
         async with (
             _require(mcp)._mcp_server.lifespan(_require(mcp)._mcp_server),
@@ -174,41 +135,7 @@ async def lifespan(app: FastAPI) -> Any:
         ):
             yield
     finally:
-        await _require(tunnels).stop()
         await runtime.close()
-
-
-async def _autostart_transports() -> None:
-    route = settings.public_route_kind.strip()
-    if route:
-        try:
-            if route == "cloudflared-try":
-                await _require(tunnels).start(
-                    "cloudflared", mode="try", instance_id=_PUBLIC_ROUTE_INSTANCE
-                )
-            elif route == "cloudflared-named":
-                await _require(tunnels).start(
-                    "cloudflared",
-                    mode="named",
-                    token=settings.cloudflared_token,
-                    instance_id=_PUBLIC_ROUTE_INSTANCE,
-                )
-            else:
-                await _require(tunnels).start(
-                    "direct", instance_id=_PUBLIC_ROUTE_INSTANCE
-                )
-        except Exception:
-            pass
-    if settings.chatgpt_tunnel_enabled:
-        with suppress(Exception):
-            await _require(tunnels).start(
-                "chatgpt",
-                tunnel_id=settings.chatgpt_tunnel_id,
-                api_key=settings.chatgpt_api_key,
-                client_bin=settings.tunnel_client_command,
-                instance_id=_CHATGPT_MCP_INSTANCE,
-            )
-
 
 def _print_startup_banner() -> None:
     if _GENERATED_WEB_TOKEN:
@@ -406,10 +333,6 @@ def _oauth_metadata_audit() -> dict[str, Any]:
         "pkce": "S256",
         "protectedResource": _protected_resource_metadata(),
         "authorizationServer": _authorization_server_metadata(),
-        "publicUrlSource": "cloudflared-runtime"
-        if _require(auth).public_url != settings.public_url
-        else "configured",
-        "note": "Secure MCP Tunnel rewrites resource/resource_metadata to its public endpoint; authorization_servers[0] remains this public HTTPS issuer.",
     }
 
 
@@ -786,30 +709,9 @@ def _oauth_redirect(redirect_uri: str, **params: str) -> str:
     )
 
 
-@app.post("/api/native/tunnel-client/install")
-async def native_tunnel_install(
-    request: Request, p: Annotated[Principal, Depends(principal)]
-) -> Any:
-    body = await request.json()
-    try:
-        result = await asyncio.to_thread(
-            _require(native).install_tunnel_client,
-            body.get("release") or settings.tunnel_client_release,
-        )
-        _require(settings_store).set("tunnel_client_command", result["tunnelCommand"])
-        _require(tunnels).settings = replace(
-            _require(tunnels).settings, tunnel_client_command=result["tunnelCommand"]
-        )
-        return result
-    except NativeRuntimeError as exc:
-        raise HTTPException(422, str(exc)) from exc
-
-
 @app.get("/api/overview")
 async def overview(p: Annotated[Principal, Depends(principal)]) -> Any:
     return {
-        "publicRoute": _require(tunnels).status(_PUBLIC_ROUTE_INSTANCE),
-        "chatgptTunnel": _require(tunnels).status(_CHATGPT_MCP_INSTANCE),
         "executionCapabilities": _require(orch).capabilities(),
         "auth": {"web": "token", "mcp": settings.mcp_auth_mode},
     }
@@ -942,85 +844,17 @@ async def set_settings(
 ) -> Any:
     body = await _read_json_body_limited(request, 128 * 1024)
     body = {k: v for k, v in body.items() if v != "********"}
-    body.pop("runtime_public_url", None)
-    if "mcp_auth_mode" in body and body["mcp_auth_mode"] not in {
-        "token",
-        "oauth",
-        "both",
-        "noauth",
-    }:
+    if "mcp_auth_mode" in body and body["mcp_auth_mode"] not in {"token", "oauth", "both", "noauth"}:
         raise HTTPException(422, "mcp_auth_mode must be token, oauth, both, or noauth")
-    if "public_route_kind" in body and body[
-        "public_route_kind"
-    ] not in _PUBLIC_ROUTE_KINDS | {""}:
-        raise HTTPException(
-            422,
-            "public_route_kind must be direct, cloudflared-try, or cloudflared-named",
-        )
-    bool_settings = {
-        "oauth_callback_protection",
-        "tunnel_auto_restart",
-        "chatgpt_tunnel_enabled",
-    }
-    invalid_bools = sorted(
-        key for key in bool_settings if key in body and not isinstance(body[key], bool)
-    )
-    if invalid_bools:
-        raise HTTPException(
-            422, f"settings must be boolean: {', '.join(invalid_bools)}"
-        )
-    body.pop("tunnel_kind", None)
-    body.pop("chatgpt_api_key", None)
-    body.pop("cloudflared_token", None)
-    updated = _require(settings_store).update(body)
-    if "chatgpt_tunnel_id" in body:
-        _require(auth).set_chatgpt_tunnel_id(
-            str(updated.get("chatgpt_tunnel_id") or "")
-        )
-    if any(
-        key in body
-        for key in (
-            "tunnel_client_command",
-            "tunnel_client_release",
-            "tunnel_auto_restart",
-            "chatgpt_tunnel_enabled",
-            "chatgpt_tunnel_id",
-            "public_route_kind",
-        )
-    ):
-        runtime_settings = replace(
-            settings,
-            tunnel_client_command=(
-                updated.get("tunnel_client_command") or settings.tunnel_client_command
-            ),
-            tunnel_client_release=(
-                updated.get("tunnel_client_release") or settings.tunnel_client_release
-            ),
-            tunnel_auto_restart=bool(updated.get("tunnel_auto_restart", True)),
-            chatgpt_tunnel_enabled=bool(updated.get("chatgpt_tunnel_enabled", False)),
-            chatgpt_tunnel_id=(
-                updated.get("chatgpt_tunnel_id") or settings.chatgpt_tunnel_id
-            ),
-            public_route_kind=(updated.get("public_route_kind") or ""),
-            tunnel_kind=(updated.get("public_route_kind") or ""),
-        )
-        _require(tunnels).settings = runtime_settings
-    restart_required = sorted(
-        set(body)
-        & {
-            "web_access_token",
-            "mcp_auth_mode",
-            "mcp_access_token",
-            "oauth_password",
-            "oauth_callback_protection",
-            "public_url",
-        }
-    )
-    return {
-        "settings": _masked_settings(_effective_settings()),
-        "restartRequired": restart_required,
-    }
-
+    if "oauth_callback_protection" in body and not isinstance(body["oauth_callback_protection"], bool):
+        raise HTTPException(422, "oauth_callback_protection must be boolean")
+    allowed = set(_require(settings_store).all())
+    unknown = sorted(set(body) - allowed)
+    if unknown:
+        raise HTTPException(422, f"unsupported settings: {', '.join(unknown)}")
+    _require(settings_store).update(body)
+    restart_required = sorted(set(body) & {"web_access_token", "mcp_auth_mode", "mcp_access_token", "oauth_password", "oauth_callback_protection", "public_url"})
+    return {"settings": _masked_settings(_effective_settings()), "restartRequired": restart_required}
 
 def _masked_settings(values: dict[str, Any]) -> dict[str, Any]:
     return dict(values)
@@ -1028,13 +862,6 @@ def _masked_settings(values: dict[str, Any]) -> dict[str, Any]:
 def _effective_settings() -> dict[str, Any]:
     values = _require(settings_store).all()
     fallbacks = {
-        "public_route_kind": settings.public_route_kind,
-        "tunnel_kind": settings.public_route_kind,
-        "chatgpt_tunnel_enabled": settings.chatgpt_tunnel_enabled,
-        "chatgpt_tunnel_id": settings.chatgpt_tunnel_id,
-        "tunnel_client_command": settings.tunnel_client_command,
-        "tunnel_client_release": settings.tunnel_client_release,
-        "tunnel_auto_restart": settings.tunnel_auto_restart,
         "web_access_token": settings.web_access_token,
         "mcp_auth_mode": settings.mcp_auth_mode,
         "mcp_access_token": settings.mcp_access_token,
@@ -1045,78 +872,7 @@ def _effective_settings() -> dict[str, Any]:
     for key, fallback in fallbacks.items():
         override = _require(settings_store).get_override(key)
         values[key] = fallback if override is None or override == "" else override
-    values["runtime_public_url"] = _require(auth).public_url
     return values
-
-
-@app.get("/api/public-route/status")
-@app.get("/api/tunnel/status")
-async def public_route_status(p: Annotated[Principal, Depends(principal)]) -> Any:
-    return _require(tunnels).status(_PUBLIC_ROUTE_INSTANCE)
-
-
-@app.post("/api/public-route/start")
-@app.post("/api/tunnel/start")
-async def public_route_start(
-    request: Request, p: Annotated[Principal, Depends(principal)]
-) -> Any:
-    body = await request.json()
-    kind = body.get("kind", "direct")
-    if kind not in {"direct", "cloudflared"}:
-        raise HTTPException(
-            422, "global public route only supports direct or cloudflared"
-        )
-    mode = body.get("mode", "try") if kind == "cloudflared" else ""
-    if kind == "cloudflared" and mode not in {"try", "named"}:
-        raise HTTPException(422, "cloudflared mode must be try or named")
-    stored_kind = f"cloudflared-{mode}" if kind == "cloudflared" else "direct"
-    _require(settings_store).set("public_route_kind", stored_kind)
-    _require(tunnels).settings = replace(
-        _require(tunnels).settings, public_url=settings.public_url
-    )
-    options = {"instance_id": _PUBLIC_ROUTE_INSTANCE}
-    if kind == "cloudflared":
-        options.update(mode=mode, token=body.get("token", ""))
-    return await _require(tunnels).start(kind, **options)
-
-
-@app.post("/api/public-route/stop")
-@app.post("/api/tunnel/stop")
-async def public_route_stop(p: Annotated[Principal, Depends(principal)]) -> Any:
-    await _require(tunnels).stop(_PUBLIC_ROUTE_INSTANCE)
-    _replace_runtime_public_url(settings.public_url, https_required=False)
-    return {"ok": True}
-
-
-@app.get("/api/chatgpt-tunnel/status")
-async def chatgpt_tunnel_status(p: Annotated[Principal, Depends(principal)]) -> Any:
-    return _require(tunnels).status(_CHATGPT_MCP_INSTANCE)
-
-
-@app.post("/api/chatgpt-tunnel/start")
-async def chatgpt_tunnel_start(
-    request: Request, p: Annotated[Principal, Depends(principal)]
-) -> Any:
-    body = await request.json()
-    tunnel_id = str(body.get("tunnel_id") or settings.chatgpt_tunnel_id)
-    if body.get("tunnel_id"):
-        _require(settings_store).set("chatgpt_tunnel_id", tunnel_id)
-    _require(auth).set_chatgpt_tunnel_id(tunnel_id)
-    _require(settings_store).set("chatgpt_tunnel_enabled", True)
-    return await _require(tunnels).start(
-        "chatgpt",
-        instance_id=_CHATGPT_MCP_INSTANCE,
-        tunnel_id=tunnel_id,
-        api_key=body.get("api_key", ""),
-        client_bin=body.get("client_bin", ""),
-    )
-
-
-@app.post("/api/chatgpt-tunnel/stop")
-async def chatgpt_tunnel_stop(p: Annotated[Principal, Depends(principal)]) -> Any:
-    _require(settings_store).set("chatgpt_tunnel_enabled", False)
-    await _require(tunnels).stop(_CHATGPT_MCP_INSTANCE)
-    return {"ok": True}
 
 
 def main() -> None:
