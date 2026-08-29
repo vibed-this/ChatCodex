@@ -83,6 +83,9 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
         settings_store.set("oauth_token_secret", oauth_token_secret)
 
     public_url = str(override("public_url", settings.public_url)).rstrip("/")
+    mcp_localhost_noauth = bool(
+        override("mcp_localhost_noauth", getattr(settings, "mcp_localhost_noauth", False))
+    )
     settings = Settings(
         **{
             **settings.__dict__,
@@ -97,6 +100,7 @@ def create_runtime(base_settings: Settings | None = None) -> Runtime:
                     "oauth_callback_protection", settings.oauth_callback_protection
                 )
             ),
+            "mcp_localhost_noauth": mcp_localhost_noauth,
             "public_url": public_url
         }
     )

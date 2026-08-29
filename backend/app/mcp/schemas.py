@@ -124,7 +124,7 @@ CORE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
             },
             ["filePath"],
         ),
-        {"type": "object", "additionalProperties": True},
+        None,
     ),
     ToolDefinition(
         "write",

@@ -128,6 +128,9 @@ class FilesystemService:
                 "metadata": {"preview": "\n".join(sliced[:20]), "truncated": truncated},
                 "entries": sliced,
                 "truncated": truncated,
+                "content": None,
+                "mime": None,
+                "dataBase64": None,
                 "totalEntries": len(entries),
             }
 
@@ -157,8 +160,12 @@ class FilesystemService:
                     "title": _rel_title(resolved),
                     "output": msg,
                     "metadata": {"preview": msg, "truncated": False},
+                    "content": None,
+                    "truncated": False,
+                    "entries": None,
                     "mime": mime,
                     "dataBase64": b64,
+                    "totalEntries": None,
                 }
             except Exception as e:
                 msg_0 = "read_error"

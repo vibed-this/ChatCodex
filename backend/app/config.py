@@ -82,6 +82,9 @@ class Settings:
     oauth_callback_protection: bool = _env(
         "CHATCODEX_OAUTH_CALLBACK_PROTECTION", "0"
     ).lower() in {"1", "true", "yes", "on"}
+    mcp_localhost_noauth: bool = _env(
+        "CHATCODEX_MCP_LOCALHOST_NOAUTH", "0"
+    ).lower() in {"1", "true", "yes", "on"}
     public_url: str = _env("CHATCODEX_PUBLIC_URL", "http://127.0.0.1:8000")
 
 
