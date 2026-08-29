@@ -19,6 +19,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from .persistence.oauth import OAuthClientRepository
 
@@ -362,6 +363,18 @@ class Authenticator:
             self.resource,
         )
         self.store = OAuthStore(settings.oauth_callback_protection, db=db)
+
+    def accepts_resource(self, resource: str) -> bool:
+        """Accept only the configured MCP resource URL (tunnel support removed)."""
+        return resource == self.resource
+
+    def set_public_url(self, public_url: str) -> None:
+        """Update the issuer/resource used by the current running instance."""
+        base = public_url.rstrip("/")
+        resource = f"{base}/mcp"
+        self.public_url = base
+        self.resource = resource
+        self.signer.set_issuer(base, resource)
 
     def authenticate(
         self, authorization_header: str | None, remote_addr: str = ""
