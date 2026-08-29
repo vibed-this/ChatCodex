@@ -16,6 +16,7 @@ DEFAULTS: dict[str, Any] = {
     "mcp_access_token": "",
     "oauth_password": "",
     "oauth_callback_protection": False,
+    "mcp_localhost_noauth": False,
     "public_url": "",
     "external_mcp_servers": [],
 }

@@ -379,6 +379,8 @@ class Authenticator:
     def authenticate(
         self, authorization_header: str | None, remote_addr: str = ""
     ) -> Principal | None:
+        if getattr(self.settings, "mcp_localhost_noauth", False) and remote_addr in ("127.0.0.1", "::1", ""):
+            return Principal(user_id="local", scopes=["tools"])
         if self.mode == "noauth":
             if remote_addr in ("127.0.0.1", "::1", ""):
                 return Principal(user_id="local", scopes=["tools"])

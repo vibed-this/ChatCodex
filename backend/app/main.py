@@ -848,12 +848,14 @@ async def set_settings(
         raise HTTPException(422, "mcp_auth_mode must be token, oauth, both, or noauth")
     if "oauth_callback_protection" in body and not isinstance(body["oauth_callback_protection"], bool):
         raise HTTPException(422, "oauth_callback_protection must be boolean")
+    if "mcp_localhost_noauth" in body and not isinstance(body["mcp_localhost_noauth"], bool):
+        raise HTTPException(422, "mcp_localhost_noauth must be boolean")
     allowed = set(_require(settings_store).all())
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise HTTPException(422, f"unsupported settings: {', '.join(unknown)}")
     _require(settings_store).update(body)
-    restart_required = sorted(set(body) & {"web_access_token", "mcp_auth_mode", "mcp_access_token", "oauth_password", "oauth_callback_protection", "public_url"})
+    restart_required = sorted(set(body) & {"web_access_token", "mcp_auth_mode", "mcp_access_token", "oauth_password", "oauth_callback_protection", "mcp_localhost_noauth", "public_url"})
     return {"settings": _masked_settings(_effective_settings()), "restartRequired": restart_required}
 
 def _masked_settings(values: dict[str, Any]) -> dict[str, Any]:
@@ -866,7 +868,8 @@ def _effective_settings() -> dict[str, Any]:
         "mcp_auth_mode": settings.mcp_auth_mode,
         "mcp_access_token": settings.mcp_access_token,
         "oauth_password": settings.oauth_password,
-        "oauth_callback_protection": settings.oauth_callback_protection,
+        "oauth_callback_protection": getattr(settings, "oauth_callback_protection", False),
+        "mcp_localhost_noauth": getattr(settings, "mcp_localhost_noauth", False),
         "public_url": settings.public_url,
     }
     for key, fallback in fallbacks.items():
