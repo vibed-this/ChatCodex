@@ -223,5 +223,66 @@ class ToolContractTests(unittest.IsolatedAsyncioTestCase):
             assert tools[name].outputSchema == TOOL_DEFINITIONS[name].output_schema
 
 
+class LocalhostNoAuthTests(unittest.IsolatedAsyncioTestCase):
+    """Regression: tokenless loopback connections must be admitted when enabled.
+
+    The SDK's ``BearerAuthBackend`` answers 401 before any verifier runs when no
+    ``Authorization`` header is present, so the ``mcp_localhost_noauth`` bypass must
+    live in the auth backend itself.
+    """
+
+    async def _auth_result(self, settings: "Settings", host: str, header: "dict[str, str] | None") -> object:
+        from starlette.requests import HTTPConnection
+
+        from app.mcp.server import _LocalhostBearerAuthBackend, _Verifier
+        from app.oauth import Authenticator
+
+        auth = Authenticator(settings, db=None)
+        backend = _LocalhostBearerAuthBackend(_Verifier(auth))
+        scope: dict[str, object] = {
+            "type": "http",
+            "client": (host, 1234),
+            "headers": [(k.encode(), v.encode()) for k, v in (header or {}).items()],
+        }
+        return await backend.authenticate(HTTPConnection(scope))
+
+    async def test_loopback_without_token_is_admitted_when_enabled(self) -> None:
+        settings = Settings(
+            mcp_auth_mode="token", mcp_localhost_noauth=True, mcp_access_token="secret"
+        )
+        result = await self._auth_result(settings, "127.0.0.1", None)
+        assert result is not None
+
+    async def test_remote_without_token_is_rejected_when_enabled(self) -> None:
+        settings = Settings(
+            mcp_auth_mode="token", mcp_localhost_noauth=True, mcp_access_token="secret"
+        )
+        result = await self._auth_result(settings, "203.0.113.9", None)
+        assert result is None
+
+    async def test_loopback_without_token_is_rejected_when_disabled(self) -> None:
+        settings = Settings(
+            mcp_auth_mode="token", mcp_localhost_noauth=False, mcp_access_token="secret"
+        )
+        result = await self._auth_result(settings, "127.0.0.1", None)
+        assert result is None
+
+    async def test_app_uses_loopback_aware_backend_when_enabled(self) -> None:
+        from app.mcp.server import _LocalhostBearerAuthBackend, build_mcp
+        from app.oauth import Authenticator
+
+        settings = Settings(
+            mcp_auth_mode="token", mcp_localhost_noauth=True, mcp_access_token="secret"
+        )
+        auth = Authenticator(settings, db=None)
+        app = build_mcp(settings, cast("Any", FakeExecutionService()), auth).streamable_http_app()
+        backends = [
+            mw.kwargs.get("backend")
+            for mw in app.user_middleware
+            if mw.cls.__name__ == "AuthenticationMiddleware"
+        ]
+        assert any(isinstance(b, _LocalhostBearerAuthBackend) for b in backends)
+
+
 if __name__ == "__main__":
     unittest.main()

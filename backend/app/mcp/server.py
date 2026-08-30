@@ -9,10 +9,18 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from mcp import types as mtypes
+from mcp.server.auth.middleware.bearer_auth import (
+    AuthenticatedUser,
+    BearerAuthBackend,
+)
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyHttpUrl, Field, TypeAdapter
+from starlette.authentication import AuthCredentials
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.requests import HTTPConnection
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -28,6 +36,45 @@ class ContractFastMCP(FastMCP):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.external_mcp = external_mcp
+
+    def _with_localhost_auth(self, app: Any) -> Any:
+        """Swap the SDK's ``BearerAuthBackend`` for the loopback-aware variant.
+
+        ``FastMCP`` hardcodes ``BearerAuthBackend(self._token_verifier)`` inside its
+        app factories, so we cannot inject our backend through the constructor. After
+        the parent builds the Starlette app we locate the ``AuthenticationMiddleware``
+        that wraps a ``BearerAuthBackend`` and rebuild the middleware stack with our
+        subclass, which admits tokenless loopback clients when ``mcp_localhost_noauth``
+        is enabled. The SDK is pinned, so this post-build swap stays in sync.
+        """
+        if self._token_verifier is None:
+            return app
+        new_middleware: list[Middleware] = []
+        replaced = False
+        for mw in app.user_middleware:
+            if (
+                mw.cls is AuthenticationMiddleware
+                and isinstance(mw.kwargs.get("backend"), BearerAuthBackend)
+            ):
+                new_middleware.append(
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_LocalhostBearerAuthBackend(self._token_verifier),
+                    )
+                )
+                replaced = True
+            else:
+                new_middleware.append(mw)
+        if replaced:
+            app.user_middleware = new_middleware
+            app.middleware = app.build_middleware_stack()
+        return app
+
+    def streamable_http_app(self) -> Any:
+        return self._with_localhost_auth(super().streamable_http_app())
+
+    def sse_app(self, mount_path: str | None = None) -> Any:
+        return self._with_localhost_auth(super().sse_app(mount_path))
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         if self.external_mcp is not None and self.external_mcp.owns_tool(name):
@@ -123,6 +170,54 @@ class _Verifier(TokenVerifier):
             scopes=canon or ["tools"],
             expires_at=None,
         )
+
+
+class _LocalhostBearerAuthBackend(BearerAuthBackend):
+    """Bearer auth that also admits loopback clients without a token.
+
+    The SDK's ``BearerAuthBackend`` returns ``None`` (unauthenticated) as soon as
+    there is no ``Authorization`` header, and ``RequireAuthMiddleware`` then
+    answers 401 before any verifier runs. That makes the ``mcp_localhost_noauth``
+    feature unreachable for tokenless localhost connections.
+
+    This backend keeps the standard Bearer verification for every request that
+    carries a token, but when ``mcp_localhost_noauth`` is enabled and the request
+    originates from a loopback address with no ``Authorization`` header, it
+    synthesises a local ``tools`` principal so the request is admitted.
+    """
+
+    _LOOPBACK_HOSTS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _localhost_noauth_enabled(self) -> bool:
+        auth = getattr(self.token_verifier, "auth", None)
+        settings = getattr(auth, "settings", None)
+        return bool(getattr(settings, "mcp_localhost_noauth", False))
+
+    @staticmethod
+    def _is_loopback(conn: HTTPConnection) -> bool:
+        client = conn.client
+        if client is None or not client.host:
+            return False
+        return client.host in _LocalhostBearerAuthBackend._LOOPBACK_HOSTS
+
+    async def authenticate(self, conn: HTTPConnection):
+        header = next(
+            (conn.headers.get(key) for key in conn.headers if key.lower() == "authorization"),
+            None,
+        )
+        if (
+            not header
+            and self._localhost_noauth_enabled()
+            and self._is_loopback(conn)
+        ):
+            token = AccessToken(
+                token="",
+                client_id="local",
+                scopes=["tools"],
+                expires_at=None,
+            )
+            return AuthCredentials(["tools"]), AuthenticatedUser(token)
+        return await super().authenticate(conn)
 
 
 def tool_security_schemes(settings: Settings) -> list[dict[str, Any]]:

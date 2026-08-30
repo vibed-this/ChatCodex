@@ -151,6 +151,19 @@ def _print_startup_banner() -> None:
 
 app = FastAPI(title="ChatCodex Gateway", version="0.1.0", lifespan=lifespan)
 
+from starlette.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_origin_regex=None,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+    expose_headers=["Mcp-Session-Id", "mcp-session-id"],
+    max_age=86400,
+)
+
 _WEB_COOKIE = "chatcodex_web_session"
 _SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
