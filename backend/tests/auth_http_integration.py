@@ -222,7 +222,7 @@ def run_checks(base: str) -> dict[str, int]:
             and metadata.get("token_endpoint_auth_methods_supported") == ["none"]
         )
         else 0
-    )[0]
+    )
     checks["web_rejects_mcp_token"] = request(
         base, "/api/settings", token="mcp-cli-secret"
     )[0]
